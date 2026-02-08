@@ -46,7 +46,7 @@ export default function GenerationPanel() {
   const [lighting, setLighting] = useState('')
   const [mood, setMood] = useState('')
   const [negativePrompt, setNegativePrompt] = useState('')
-  const [generatingType, setGeneratingType] = useState(null)
+  const [generatingTypes, setGeneratingTypes] = useState(new Set())
   const [fullscreenImage, setFullscreenImage] = useState(null)
 
   // Story generation state
@@ -55,13 +55,15 @@ export default function GenerationPanel() {
   const [storyGenre, setStoryGenre] = useState('High Fantasy')
   const [generatingStory, setGeneratingStory] = useState(false)
 
+  const isAnyGenerating = generatingTypes.size > 0
+
   const handleGenerateImage = async (imageType) => {
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
       return
     }
 
-    setGeneratingType(imageType)
+    setGeneratingTypes(prev => new Set([...prev, imageType]))
     try {
       const typeConfig = IMAGE_TYPES.find(t => t.id === imageType)
       const prompt = buildImagePrompt(character, imageType, {
@@ -76,16 +78,25 @@ export default function GenerationPanel() {
       setGeneratedImage(imageType, base64)
       addToast(`${typeConfig.label} generated successfully!`, 'success')
     } catch (e) {
-      addToast(e.message, 'error', 5000)
+      addToast(`${imageType}: ${e.message}`, 'error', 5000)
     } finally {
-      setGeneratingType(null)
+      setGeneratingTypes(prev => {
+        const next = new Set(prev)
+        next.delete(imageType)
+        return next
+      })
     }
   }
 
   const handleGenerateAllImages = async () => {
-    for (const type of IMAGE_TYPES) {
-      await handleGenerateImage(type.id)
+    if (!apiKey) {
+      addToast('Please set your API key in Settings first.', 'warning')
+      return
     }
+
+    // Fire all 4 image generations simultaneously
+    const promises = IMAGE_TYPES.map(type => handleGenerateImage(type.id))
+    await Promise.allSettled(promises)
   }
 
   const handleGenerateStory = async () => {
@@ -161,11 +172,11 @@ export default function GenerationPanel() {
 
         <button
           onClick={handleGenerateAllImages}
-          disabled={generatingType !== null}
+          disabled={isAnyGenerating}
           className="btn-generate w-full flex items-center justify-center gap-2"
         >
-          {generatingType ? (
-            <><div className="loader" /> Generating...</>
+          {isAnyGenerating ? (
+            <><div className="loader" /> Generating {generatingTypes.size} image{generatingTypes.size !== 1 ? 's' : ''}...</>
           ) : (
             <><Wand2 size={18} /> Generate All Images</>
           )}
@@ -179,7 +190,7 @@ export default function GenerationPanel() {
             key={type.id}
             type={type}
             image={generatedImages[type.id]}
-            isGenerating={generatingType === type.id}
+            isGenerating={generatingTypes.has(type.id)}
             onGenerate={() => handleGenerateImage(type.id)}
             onDownload={() => handleDownload(type.id)}
             onFullscreen={() => setFullscreenImage(generatedImages[type.id])}

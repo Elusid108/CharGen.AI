@@ -2,7 +2,7 @@
  * API utilities for Gemini (text + vision) and Imagen (image generation)
  */
 
-const GEMINI_MODEL = 'gemini-2.5-flash-preview-04-17'
+const GEMINI_MODEL = 'gemini-2.5-flash-preview-09-2025'
 const IMAGEN_MODEL = 'imagen-4.0-generate-001'
 
 // --- Text Generation (Gemini) ---
@@ -141,6 +141,34 @@ Instructions:
   return generateText(apiKey, systemInstruction, userPrompt, { temperature: 1.1 })
 }
 
+// --- Prompt Helper: Translate numeric stats to visual descriptions ---
+
+function describeMuscleDef(val) {
+  const v = parseInt(val)
+  if (isNaN(v) || v <= 0) return null
+  if (v < 20) return 'very soft body with no visible muscle definition'
+  if (v < 40) return 'lightly toned body with subtle muscle shape'
+  if (v < 60) return 'athletic body with visible muscle tone and some ab definition'
+  if (v < 80) return 'muscular body with clearly defined muscles, visible abs and arm veins'
+  return 'extremely muscular and ripped body with deep muscle striations and prominent vascularity'
+}
+
+function describeVascularity(val) {
+  const v = parseInt(val)
+  if (isNaN(v) || v < 20) return null
+  if (v < 50) return 'subtle veining visible on forearms'
+  if (v < 75) return 'prominent veins on arms and hands'
+  return 'extreme road-map vascularity across arms, chest and abs'
+}
+
+function describeSkinGlisten(val) {
+  const v = parseInt(val)
+  if (isNaN(v) || v < 20) return null
+  if (v < 50) return 'slight sheen on skin'
+  if (v < 75) return 'noticeable sweat glistening on skin'
+  return 'skin drenched in sweat, heavily glistening and reflecting light'
+}
+
 // --- Image Prompt Builder ---
 
 export function buildImagePrompt(character, imageType = 'profile', styleModifiers = {}) {
@@ -161,39 +189,65 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
   parts.push(`A highly detailed character concept art of a ${age ? age + ' year old ' : ''}${sex} ${species}.`)
 
   if (physique) parts.push(`Build: ${physique}.`)
-  if (character.muscle_def) parts.push(`Muscle definition: ${character.muscle_def}%.`)
+
+  // Translate muscle_def to visual description instead of raw percentage
+  const muscleDesc = describeMuscleDef(character.muscle_def)
+  if (muscleDesc) parts.push(`Body: ${muscleDesc}.`)
+
   if (skinTone) parts.push(`Skin tone: ${skinTone}.`)
+  if (character.skin_texture) parts.push(`Skin texture: ${character.skin_texture}.`)
   if (facialStructure) parts.push(`Facial structure: ${facialStructure}.`)
-  if (facialHair) parts.push(`Facial hair: ${facialHair}.`)
-  if (hairStyle) parts.push(`Hair: ${hairStyle}${hairColor ? ', ' + hairColor : ''}.`)
+  if (facialHair && facialHair !== 'N/A') parts.push(`Facial hair: ${facialHair}.`)
+  if (hairStyle) parts.push(`Hair: ${hairStyle}${hairColor && hairColor !== 'Bald/N/A' ? ', ' + hairColor : ''}.`)
   if (eyeColor) parts.push(`Eyes: ${eyeColor}.`)
-  if (character.body_hair) parts.push(`Body hair: ${character.body_hair}.`)
+  if (character.body_hair && character.body_hair !== 'N/A (Non-Human)') parts.push(`Body hair: ${character.body_hair}.`)
   if (character.scars) parts.push(`Distinguishing marks: ${character.scars}.`)
+  if (character.blemishes) parts.push(`Imperfections: ${character.blemishes}.`)
+
+  // Translate vascularity and sweat to visual descriptions
+  const vascDesc = describeVascularity(character.vascularity)
+  if (vascDesc) parts.push(`Veins: ${vascDesc}.`)
+
+  const glistenDesc = describeSkinGlisten(character.sweat_glisten)
+  if (glistenDesc) parts.push(`Skin surface: ${glistenDesc}.`)
 
   // Non-human features
   if (character.special_features) parts.push(`Special features: ${character.special_features}.`)
 
-  // Personality influence on expression
-  if (character.alignment) parts.push(`Expression reflects a ${character.alignment} disposition.`)
-  if (character.personality) parts.push(`Core vibe: ${character.personality}.`)
+  // Only use personality for expression/mood -- do NOT include alignment or archetype
+  // as they are narrative concepts that confuse the image model
+  if (character.personality) {
+    parts.push(`Their facial expression conveys a ${character.personality} demeanor.`)
+  }
 
   // Image type specific instructions
   switch (imageType) {
     case 'profile':
-      parts.push('Framing: Head and shoulders portrait, 1:1 aspect ratio. Solid dark background.')
+      parts.push('Framing: Head and shoulders portrait, 1:1 square aspect ratio. Solid dark background.')
       break
     case 'fullbody':
-      parts.push('Framing: Full body shot, natural relaxed pose. Solid dark background.')
+      parts.push('Framing: Full body shot, natural relaxed confident pose. Solid dark background.')
       if (character.attire) parts.push(`Wearing: ${character.attire}.`)
       break
     case 'tpose':
-      parts.push('Framing: Character reference sheet showing front view, side view, and back view in T-pose. Clean white/grey background. Character model sheet style.')
+      parts.push(
+        'Framing: A professional character model reference sheet. ' +
+        'Three views of the SAME character side by side: front-facing view on the left, ' +
+        'side profile view in the center, rear/back view on the right. ' +
+        'The character stands in a symmetrical T-pose with both arms extended straight out to the sides, ' +
+        'palms facing forward. Legs shoulder-width apart. ' +
+        'Clean neutral grey background. Technical character design sheet style. ' +
+        'Consistent proportions across all three views. No other poses.'
+      )
       break
     case 'mannequin':
-      parts.push('Framing: Full body, neutral standing pose wearing only simple underwear/base layer. Clean background. Like a mannequin reference for outfit design.')
+      parts.push(
+        'Framing: Full body, neutral standing pose wearing only simple fitted underwear/briefs. ' +
+        'Clean solid light grey background. Like a mannequin or dress-up doll reference for designing outfits onto.'
+      )
       break
     case 'outfit':
-      parts.push('Framing: Full body shot showing the complete outfit.')
+      parts.push('Framing: Full body shot showing the complete outfit clearly. Solid dark background.')
       break
     default:
       parts.push('Solid dark cinematic background.')
