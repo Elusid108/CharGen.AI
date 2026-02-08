@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Character Engine v2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Slate 900 */
+            color: #e2e8f0; /* Slate 200 */
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        .tab-active {
+            background-color: #3b82f6;
+            color: white;
+            border-right: 3px solid #60a5fa;
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .input-field {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: white;
+            transition: all 0.2s;
+        }
+        .input-field:focus {
+            border-color: #3b82f6;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+        }
+
+        /* Editable Content Area */
+        [contenteditable]:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 3px solid #3b82f6;
+            width: 20px;
+            height: 20px;
+            -webkit-animation: spin 1s linear infinite;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Modal for Image */
+        #image-modal {
+            transition: opacity 0.3s ease;
+        }
+        #image-modal.hidden {
+            pointer-events: none;
+            opacity: 0;
+        }
+        #image-modal:not(.hidden) {
+            pointer-events: auto;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="h-screen flex overflow-hidden selection:bg-blue-500/30">
+
+    <!-- Image Modal Overlay -->
+    <div id="image-modal" class="fixed inset-0 z-50 bg-black/90 hidden flex items-center justify-center p-4 cursor-zoom-out" onclick="toggleFullScreenImage()">
+        <img id="modal-img" src="" class="max-w-full max-h-full object-contain rounded shadow-2xl border border-slate-700">
+        <p class="absolute bottom-8 text-slate-400 text-sm bg-black/50 px-4 py-2 rounded-full">Click anywhere to close</p>
+    </div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col z-20 shadow-xl shrink-0">
+        <div class="p-6 border-b border-slate-800">
+            <h1 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                <i class="fa-solid fa-dna text-blue-500"></i>
+                <span>CharGen<span class="text-blue-500">.ai</span></span>
+            </h1>
+            <p class="text-xs text-slate-500 mt-1">Universal Character Engine</p>
+        </div>
+        
+        <nav class="flex-1 overflow-y-auto py-4 space-y-1" id="nav-tabs">
+            <!-- Tabs injected by JS -->
+        </nav>
+
+        <div class="p-4 border-t border-slate-800 space-y-3">
+             <button onclick="saveToLibrary()" class="w-full py-2 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition-all text-sm flex items-center justify-center gap-2 border border-slate-700">
+                <i class="fa-solid fa-floppy-disk"></i> Save to Library
+            </button>
+            <button onclick="randomizeAll()" class="w-full py-2 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg font-medium transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm">
+                <i class="fa-solid fa-dice"></i> Randomize All
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col h-full relative min-w-0">
+        
+        <!-- Header -->
+        <header class="h-16 bg-slate-900/90 backdrop-blur border-b border-slate-800 flex items-center justify-between px-8 z-10 shrink-0">
+            <h2 id="current-section-title" class="text-lg font-semibold text-white">Identity & Physical</h2>
+            <div class="flex items-center gap-4">
+                <span id="save-status" class="text-xs text-emerald-500 font-mono hidden items-center gap-1"><i class="fa-solid fa-check"></i> Updated</span>
+                <button onclick="app.reset()" class="text-slate-400 hover:text-red-400 text-sm transition-colors"><i class="fa-solid fa-trash-can mr-1"></i> New Character</button>
+            </div>
+        </header>
+
+        <!-- Scrollable Workspace -->
+        <div class="flex-1 overflow-hidden flex">
+            <!-- Form Area -->
+            <div id="workspace" class="flex-1 overflow-y-auto p-4 md:p-8 pb-32 max-w-5xl mx-auto w-full">
+                <!-- Content injected by JS -->
+            </div>
+
+            <!-- Context Panel (Right Side - Desktop Only) -->
+            <aside class="w-80 bg-slate-900 border-l border-slate-800 hidden xl:flex flex-col p-6 overflow-y-auto shrink-0">
+                <div class="sticky top-0">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-microscope"></i> Analysis
+                    </h3>
+                    <div id="context-panel" class="space-y-6">
+                        <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
+                            <h4 class="text-blue-400 font-medium mb-2 text-sm"><i class="fa-solid fa-circle-info mr-2"></i>Select an attribute</h4>
+                            <p class="text-slate-400 text-sm leading-relaxed">Hover over or change any field to see deep-dive definitions, psychological implications, and roleplay tips here.</p>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // --- 1. DATA POOLS & DEFINITIONS ---
+        
+        const definitions = {
+            // Identity
+            "Sex": { "Intersex": "Born with physical sex characteristics that do not fit typical binary notions of male or female bodies.", "None/Construct": "Artificial or magical construct without biological sex." },
+            "Gender": { "Non-binary": "Identity that is not exclusively masculine or feminine.", "Genderfluid": "Gender identity that varies over time.", "Agender": "Identifying as having no gender or being gender neutral." },
+            "Sexual Orientation": { "Demisexual": "Only experiences sexual attraction after forming a strong emotional connection.", "Asexual": "Experiences little or no sexual attraction.", "Pansexual": "Attraction to people regardless of their sex or gender." },
+            
+            // Physical
+            "Gait": {
+                "Staccato": "Sharp, precise movements. Suggests military background or high anxiety. They take up exactly as much space as they need, no more.",
+                "Lumbering": "Heavy, deliberate steps. Indicates raw power or fatigue. They move like a force of nature—slow to start, hard to stop.",
+                "Gliding": "Upper body remains still while moving. Suggests grace, stealth, or arrogance. Often seen in dancers or thieves.",
+                "Shuffling": "Feet rarely leave the ground. Suggests age, timidity, or exhaustion. They try not to be noticed.",
+                "Strutting": "Chest out, chin up. Takes up space. Indicates high confidence or overcompensation. They want to be seen."
+            },
+            "Scent": {
+                "Ozone & Copper": "Smells like a storm or old pennies. Magical or industrial origin.",
+                "Old Paper & Vanilla": "The smell of libraries and degradation. Suggests scholarship or introversion.",
+                "Woodsmoke & Pine": "The outdoors. A ranger, traveler, or someone who sleeps under the stars.",
+                "Cheap Perfume & Gin": "Masking something underneath. Urban, perhaps desperate or hiding poverty.",
+                "Motor Oil & Citrus": "Mechanic or artificer. Clean but stained. The smell of work."
+            },
+            // Psych
+            "MBTI": {
+                "INTJ": "The Architect. Imaginative and strategic thinkers, with a plan for everything. They value logic over emotion.",
+                "ENFP": "The Campaigner. Enthusiastic, creative and sociable free spirits. They find meaning in emotional connections.",
+                "ISTP": "The Virtuoso. Bold and practical experimenters. They learn by doing and often act before they think.",
+                "ESFJ": "The Consul. Extraordinarily caring, social and popular people, always eager to help."
+            },
+            "Alignment": {
+                "Lawful Good": "Acts as a good person is expected or required to act. They believe in the system.",
+                "Chaotic Neutral": "Follows their own whims; an individualist first and foremost. Their only loyalty is to their own freedom.",
+                "Lawful Evil": "Methodically takes what they want within the limits of a code of tradition. The tyrant or the corrupt official.",
+                "True Neutral": "Undecided or balanced. Preferring not to take sides, or believing that balance is more important than good or evil."
+            },
+            "Enneagram": {
+                "Type 1 (Reformer)": "Rational, idealistic. Fear: Being corrupt/evil. Desire: To be good/balanced.",
+                "Type 4 (Individualist)": "Sensitive, withdrawn. Fear: Having no identity. Desire: To be unique.",
+                "Type 8 (Challenger)": "Powerful, dominating. Fear: Being controlled. Desire: To protect themselves.",
+                "Type 9 (Peacemaker)": "Easygoing, self-effacing. Fear: Loss/Separation. Desire: Inner stability."
+            },
+            // Narrative
+            "The Lie": {
+                "I am unlovable": "Believes they must earn affection through deeds. They overwork themselves to 'buy' love.",
+                "Vulnerability is death": "Believes showing emotion will get them killed. They are stoic to a fault.",
+                "I know best": "Arrogance that prevents them from trusting others. They micro-manage and alienate allies.",
+                "The world is just": "Naivety that will be shattered by the plot. They are unprepared for unfair tragedy."
+            },
+            "Social Battery": {
+                "Introvert": "Drains energy around people, recharges in solitude. Deep, focused interactions preferred.",
+                "Extrovert": "Gains energy from interaction, drains when alone. Craves stimulation.",
+                "Omnivert": "Fluctuates between extremes depending on the specific group/context.",
+                "Ambivert": "Balanced. Can handle both but prefers neither extreme."
+            }
+        };
+
+        const randomPools = {
+            goals: [
+                "To find the six-fingered man who killed my father",
+                "To pay off the massive debt I inherited",
+                "To become the most famous bard in the continent",
+                "To find a cure for my sibling's curse",
+                "To overthrow the corrupt local magistrate",
+                "To map the uncharted wilds beyond the mountains",
+                "To simply survive the winter",
+                "To regain my lost memories",
+                "To prove my family name is not cursed",
+                "To create a masterpiece that will outlast me"
+            ],
+            fears: [
+                "Drowning in deep water",
+                "Being forgotten by history",
+                "Becoming exactly like my parents",
+                "Small, enclosed spaces",
+                "Betrayal by those closest to me",
+                "Losing control of my magic/abilities",
+                "Public humiliation",
+                "Spiders (Arachnophobia)",
+                "The dark and what hides in it",
+                "Being helpless/weak"
+            ]
+        };
+
+        const schema = {
+            "identity": {
+                icon: "fa-id-card",
+                label: "Identity & Physical",
+                fields: [
+                    { id: "name", label: "Full Name", type: "text", placeholder: "E.g., Caelus Vane" },
+                    { id: "sex", label: "Biological Sex", type: "select", options: ["Male", "Female", "Intersex", "None/Construct"] },
+                    { id: "gender", label: "Gender Identity", type: "select", options: ["Man", "Woman", "Non-binary", "Genderfluid", "Agender", "Transgender Man", "Transgender Woman", "Two-Spirit"] },
+                    { id: "orientation", label: "Sexual Orientation", type: "select", options: ["Heterosexual", "Homosexual", "Bisexual", "Pansexual", "Asexual", "Demisexual", "Queer"] },
+                    { id: "archetype", label: "Archetype", type: "select", options: ["The Hero", "The Outlaw", "The Sage", "The Explorer", "The Creator", "The Ruler", "The Magician", "The Caregiver", "The Jester", "The Everyman"] },
+                    { id: "age", label: "Age", type: "number", placeholder: "25" },
+                    { id: "physique", label: "Physique", type: "select", options: ["Wiry", "Athletic", "Soft/Round", "Imposing", "Gaunt", "Statuesque", "Stocky"] },
+                    { id: "gait", label: "Gait/Movement", type: "select", options: ["Staccato", "Lumbering", "Gliding", "Shuffling", "Strutting"] },
+                    { id: "scent", label: "Signature Scent", type: "select", options: ["Ozone & Copper", "Old Paper & Vanilla", "Woodsmoke & Pine", "Cheap Perfume & Gin", "Motor Oil & Citrus", "Lavender & Dust", "Saltwater & Rot"] },
+                    { id: "voice", label: "Voice Timbre", type: "select", options: ["Gravelly", "Nasal", "Breathy", "Booming", "Melodic", "Monotone", "Strained"] }
+                ]
+            },
+            "psychology": {
+                icon: "fa-brain",
+                label: "Psychological Engine",
+                fields: [
+                    { id: "alignment", label: "Moral Alignment", type: "select", options: ["Lawful Good", "Neutral Good", "Chaotic Good", "Lawful Neutral", "True Neutral", "Chaotic Neutral", "Lawful Evil", "Neutral Evil", "Chaotic Evil"] },
+                    { id: "mbti", label: "MBTI Type", type: "select", options: ["INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP", "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"] },
+                    { id: "enneagram", label: "Enneagram Core", type: "select", options: ["Type 1 (Reformer)", "Type 2 (Helper)", "Type 3 (Achiever)", "Type 4 (Individualist)", "Type 5 (Investigator)", "Type 6 (Loyalist)", "Type 7 (Enthusiast)", "Type 8 (Challenger)", "Type 9 (Peacemaker)"] },
+                    { id: "ocean_o", label: "Openness (0-100)", type: "range" },
+                    { id: "ocean_c", label: "Conscientiousness (0-100)", type: "range" },
+                    { id: "ocean_e", label: "Extraversion (0-100)", type: "range" },
+                    { id: "ocean_a", label: "Agreeableness (0-100)", type: "range" },
+                    { id: "ocean_n", label: "Neuroticism (0-100)", type: "range" }
+                ]
+            },
+            "social": {
+                icon: "fa-comments",
+                label: "Social & Speech",
+                fields: [
+                    { id: "battery", label: "Social Battery", type: "select", options: ["Introvert", "Extrovert", "Ambivert", "Omnivert"] },
+                    { id: "speech_style", label: "Speech Style", type: "select", options: ["Telegraphic (Short)", "Labyrinthine (Complex)", "Academic", "Street/Slang", "Poetic"] },
+                    { id: "tic", label: "Verbal Tic", type: "select", options: ["Clears throat often", "Uses filler words (um, like)", "Long pauses", "Ends sentences as questions", "Whispers", "Shouts", "Clicks tongue"] },
+                    { id: "humor", label: "Sense of Humor", type: "select", options: ["Dry/Deadpan", "Slapstick", "Self-Deprecating", "Dark/Morbid", "None/Literal", "Witty/Puns"] }
+                ]
+            },
+            "narrative": {
+                icon: "fa-book-open",
+                label: "Narrative Driver",
+                fields: [
+                    { id: "goal", label: "Conscious Goal", type: "text", placeholder: "To reclaim my family honor..." },
+                    { id: "fear", label: "Unconscious Fear", type: "text", placeholder: "Being abandoned..." },
+                    { id: "lie", label: "The Lie They Believe", type: "select", options: ["I am unlovable", "Vulnerability is death", "I know best", "The world is just", "Power is the only safety"] },
+                    { id: "vice", label: "Primary Vice", type: "select", options: ["Wrath", "Greed", "Sloth", "Pride", "Lust", "Envy", "Gluttony"] },
+                    { id: "virtue", label: "Primary Virtue", type: "select", options: ["Chastity", "Temperance", "Charity", "Diligence", "Patience", "Kindness", "Humility"] }
+                ]
+            }
+        };
+
+        // --- 2. STATE MANAGEMENT ---
+        let character = {};
+        let generatedContent = { story: "", image: "" };
+        let library = [];
+        let currentTab = "identity";
+        const apiKey = ""; // Runtime provided
+
+        // Initialize Character State
+        Object.keys(schema).forEach(cat => {
+            schema[cat].fields.forEach(field => {
+                character[field.id] = field.type === 'range' ? 50 : "";
+            });
+        });
+
+        // --- 3. UI RENDERING ---
+
+        const dom = {
+            nav: document.getElementById('nav-tabs'),
+            workspace: document.getElementById('workspace'),
+            context: document.getElementById('context-panel'),
+            title: document.getElementById('current-section-title')
+        };
+
+        function renderNav() {
+            dom.nav.innerHTML = '';
+            Object.keys(schema).forEach(key => {
+                const isActive = currentTab === key;
+                const btn = document.createElement('button');
+                btn.className = `w-full text-left px-6 py-3 text-sm font-medium transition-colors flex items-center gap-3 border-r-2 ${isActive ? 'bg-slate-800 text-blue-400 border-blue-500' : 'border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`;
+                btn.innerHTML = `<i class="fa-solid ${schema[key].icon} w-5"></i> ${schema[key].label}`;
+                btn.onclick = () => switchTab(key);
+                dom.nav.appendChild(btn);
+            });
+            
+            // Export Tab
+            const isExportActive = currentTab === 'export';
+            const exportBtn = document.createElement('button');
+            exportBtn.className = `w-full text-left px-6 py-3 text-sm font-medium transition-colors flex items-center gap-3 border-r-2 ${isExportActive ? 'bg-slate-800 text-emerald-400 border-emerald-500' : 'border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`;
+            exportBtn.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles w-5"></i> Export & AI`;
+            exportBtn.onclick = () => switchTab('export');
+            dom.nav.appendChild(exportBtn);
+
+            // Library Tab
+            const isLibActive = currentTab === 'library';
+            const libBtn = document.createElement('button');
+            libBtn.className = `w-full text-left px-6 py-3 text-sm font-medium transition-colors flex items-center gap-3 border-r-2 ${isLibActive ? 'bg-slate-800 text-purple-400 border-purple-500' : 'border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`;
+            libBtn.innerHTML = `<i class="fa-solid fa-book-bookmark w-5"></i> Library <span class="text-xs bg-slate-700 rounded-full px-2 ml-auto">${library.length}</span>`;
+            libBtn.onclick = () => switchTab('library');
+            dom.nav.appendChild(libBtn);
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            renderNav();
+            if (tab === 'export') {
+                renderExport();
+                dom.title.textContent = "AI Generation & Export";
+            } else if (tab === 'library') {
+                renderLibrary();
+                dom.title.textContent = "Character History";
+            } else {
+                renderForm(tab);
+                dom.title.textContent = schema[tab].label;
+            }
+        }
+
+        function renderForm(category) {
+            const data = schema[category];
+            dom.workspace.innerHTML = `
+                <div class="mb-8 flex justify-between items-end border-b border-slate-700 pb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-white mb-1">${data.label}</h2>
+                        <p class="text-slate-400 text-sm">Configure the base parameters for this section.</p>
+                    </div>
+                    <button onclick="randomizeSection('${category}')" class="text-slate-400 hover:text-blue-400 transition-colors text-sm font-mono flex items-center gap-2 px-3 py-1 rounded hover:bg-slate-800">
+                        <i class="fa-solid fa-dice"></i> Randomize
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6" id="form-grid"></div>
+            `;
+
+            const grid = document.getElementById('form-grid');
+
+            data.fields.forEach(field => {
+                const div = document.createElement('div');
+                div.className = field.type === 'range' ? 'col-span-1 md:col-span-2' : 'col-span-1';
+                
+                const label = document.createElement('label');
+                label.className = "block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2";
+                label.innerText = field.label;
+                
+                let input;
+
+                if (field.type === 'select') {
+                    input = document.createElement('div');
+                    input.className = "relative";
+                    const select = document.createElement('select');
+                    select.className = "input-field w-full rounded-md px-3 py-2 text-sm appearance-none cursor-pointer";
+                    select.innerHTML = `<option value="" disabled ${!character[field.id] ? 'selected' : ''}>Select...</option>`;
+                    field.options.forEach(opt => {
+                        select.innerHTML += `<option value="${opt}" ${character[field.id] === opt ? 'selected' : ''}>${opt}</option>`;
+                    });
+                    
+                    // Add custom arrow
+                    const arrow = document.createElement('div');
+                    arrow.className = "absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500 text-xs";
+                    arrow.innerHTML = '<i class="fa-solid fa-chevron-down"></i>';
+                    
+                    input.appendChild(select);
+                    input.appendChild(arrow);
+                    
+                    select.onchange = (e) => updateState(field.id, e.target.value);
+                    select.onmouseenter = () => showContext(field.id, character[field.id] || "Select an option");
+                } else if (field.type === 'range') {
+                    input = document.createElement('div');
+                    input.className = "flex items-center gap-4 bg-slate-800/50 p-3 rounded-lg border border-slate-700";
+                    input.innerHTML = `
+                        <input type="range" min="0" max="100" value="${character[field.id]}" class="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" oninput="updateRange(this, '${field.id}')" onmouseenter="showContext('${field.id}', this.value)">
+                        <span id="val-${field.id}" class="text-sm font-mono text-blue-400 w-12 text-right">${character[field.id]}%</span>
+                    `;
+                } else {
+                    input = document.createElement('input');
+                    input.type = field.type;
+                    input.className = "input-field w-full rounded-md px-3 py-2 text-sm";
+                    input.placeholder = field.placeholder || "";
+                    input.value = character[field.id];
+                    input.onchange = (e) => updateState(field.id, e.target.value);
+                    input.onmouseenter = () => showContext(field.id, character[field.id] || "Type a value");
+                }
+                
+                div.appendChild(label);
+                div.appendChild(input);
+                grid.appendChild(div);
+            });
+        }
+
+        function renderExport() {
+            dom.workspace.innerHTML = `
+                <div class="space-y-8 animate-fade-in">
+                    <!-- Character Sheet Summary -->
+                    <div class="glass-panel rounded-xl p-6 border-l-4 border-blue-500">
+                        <div class="flex justify-between items-start mb-4">
+                            <h3 class="text-xl font-bold text-white">Character Sheet</h3>
+                            <button onclick="document.execCommand('copy')" class="text-xs text-slate-400 hover:text-white"><i class="fa-regular fa-copy"></i> Copy JSON</button>
+                        </div>
+                        <div class="prose prose-invert max-w-none">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                                ${Object.keys(character).map(k => character[k] ? `
+                                <div class="flex justify-between border-b border-slate-700/50 pb-1 group hover:bg-slate-800/30 transition-colors px-2 rounded">
+                                    <span class="text-slate-400 capitalize text-xs pt-1">${k.replace('_', ' ').replace('ocean', 'Ocean: ')}</span>
+                                    <span class="text-white font-medium text-right">${character[k]}</span>
+                                </div>` : '').join('')}
+                            </div>
+                            ${Object.values(character).every(x => !x) ? '<p class="text-slate-500 italic text-center py-4">No traits selected yet.</p>' : ''}
+                        </div>
+                    </div>
+
+                    <!-- AI Tools -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        
+                        <!-- Backstory Generator -->
+                        <div class="bg-slate-800/50 rounded-xl p-6 border border-slate-700 flex flex-col h-full">
+                            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2"><i class="fa-solid fa-pen-nib text-purple-400"></i> Narrative Engine</h3>
+                            
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-1">Length</label>
+                                    <select id="story-length" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:border-purple-500 outline-none">
+                                        <option value="Short Vignette">Short Vignette (1 paragraph)</option>
+                                        <option value="Standard Bio">Standard Bio (3 paragraphs)</option>
+                                        <option value="Detailed Story">Detailed Story (1 page)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-1">Complexity</label>
+                                    <select id="story-complex" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:border-purple-500 outline-none">
+                                        <option value="Simple">Simple & Direct</option>
+                                        <option value="Mysterious">Mysterious & Vague</option>
+                                        <option value="Eldritch/Dark">Dark & Gritty</option>
+                                        <option value="High Fantasy">High Fantasy Flowery</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button onclick="generateBackstory()" id="btn-story" class="w-full py-2 bg-purple-600 hover:bg-purple-500 rounded text-white font-medium transition-colors mb-4 shadow-lg shadow-purple-900/20">Generate Backstory</button>
+                            
+                            <div id="story-output" oninput="generatedContent.story = this.innerHTML" contenteditable="true" class="bg-slate-900 p-4 rounded min-h-[250px] text-sm text-slate-300 leading-relaxed font-serif whitespace-pre-wrap border border-slate-800 focus:border-purple-500 focus:outline-none transition-colors">
+                                ${generatedContent.story || '<span class="text-slate-600 italic">Story will appear here. You can also type your own backstory here directly...</span>'}
+                            </div>
+                        </div>
+
+                        <!-- Image Generator -->
+                        <div class="bg-slate-800/50 rounded-xl p-6 border border-slate-700 flex flex-col h-full">
+                            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2"><i class="fa-solid fa-image text-pink-400"></i> Visual Engine</h3>
+                            <p class="text-xs text-slate-400 mb-4 h-10">Generates a character concept portrait. Click the generated image to view full screen.</p>
+                            
+                            <button onclick="generateImage()" id="btn-image" class="w-full py-2 bg-pink-600 hover:bg-pink-500 rounded text-white font-medium transition-colors mb-4 shadow-lg shadow-pink-900/20">Generate Portrait</button>
+                            
+                            <div id="image-output" class="bg-slate-900 rounded flex-1 min-h-[250px] flex items-center justify-center border border-slate-800 overflow-hidden relative group cursor-zoom-in" onclick="toggleFullScreenImage()">
+                                ${generatedContent.image ? `<img src="${generatedContent.image}" class="w-full h-full object-cover">` : '<span class="text-slate-600 text-xs">Image will appear here</span>'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLibrary() {
+            if (library.length === 0) {
+                dom.workspace.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-slate-500">
+                        <i class="fa-solid fa-ghost text-4xl mb-4 text-slate-700"></i>
+                        <h3 class="text-lg font-medium text-slate-400">Library is empty</h3>
+                        <p class="text-sm">Generate characters and save them to build your history.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            dom.workspace.innerHTML = `
+                <div class="mb-8">
+                    <h2 class="text-2xl font-bold text-white mb-1">Character Library</h2>
+                    <p class="text-slate-400 text-sm">Stored locally for this session.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    ${library.map((char, index) => `
+                        <div class="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden hover:border-slate-500 transition-colors group">
+                            <div class="h-32 bg-slate-900 relative overflow-hidden">
+                                ${char.generated.image ? 
+                                    `<img src="${char.generated.image}" class="w-full h-full object-cover opacity-50 group-hover:opacity-100 transition-opacity">` : 
+                                    `<div class="w-full h-full flex items-center justify-center text-slate-700"><i class="fa-solid fa-user text-4xl"></i></div>`
+                                }
+                                <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-transparent p-4">
+                                    <h3 class="text-white font-bold truncate">${char.data.name || "Unnamed"}</h3>
+                                    <p class="text-slate-400 text-xs">${char.data.archetype || "Unknown"} • Level 1</p>
+                                </div>
+                            </div>
+                            <div class="p-4">
+                                <div class="flex justify-between items-center mb-3">
+                                    <span class="text-xs text-slate-500 font-mono">${new Date(char.timestamp).toLocaleTimeString()}</span>
+                                    <span class="text-xs px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-900/50">${char.data.mbti || "N/A"}</span>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 mb-4">
+                                    <button onclick="loadCharacter(${index})" class="py-2 bg-slate-700 hover:bg-blue-600 text-white text-xs rounded transition-colors">Load</button>
+                                    <button onclick="deleteCharacter(${index})" class="py-2 bg-slate-700 hover:bg-red-600 text-white text-xs rounded transition-colors">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // --- 4. LOGIC & ACTIONS ---
+
+        function updateState(id, value) {
+            character[id] = value;
+            showContext(id, value);
+            
+            // Show saved indicator briefly
+            const badge = document.getElementById('save-status');
+            badge.classList.remove('hidden');
+            badge.classList.add('flex');
+            setTimeout(() => {
+                badge.classList.add('hidden');
+                badge.classList.remove('flex');
+            }, 1000);
+        }
+
+        function updateRange(el, id) {
+            document.getElementById(`val-${id}`).innerText = el.value + '%';
+            character[id] = el.value;
+        }
+
+        function showContext(id, value) {
+            let desc = "";
+            let title = value;
+
+            for (const category in definitions) {
+                if (definitions[category][value]) {
+                    desc = definitions[category][value];
+                    break;
+                }
+            }
+
+            if (!desc) {
+                // Heuristics for non-dictionary items
+                if (id === 'ocean_n' && value > 70) desc = "High Neuroticism: Prone to stress, anxiety, and mood swings. Highly reactive to environment.";
+                if (id === 'ocean_n' && value < 30) desc = "Low Neuroticism: Emotionally stable, calm, resilient. A rock in the storm.";
+                if (id === 'ocean_o' && value > 70) desc = "High Openness: Creative, abstract thinker, loves new ideas. Likely magic-inclined.";
+                if (id === 'ocean_e' && value > 70) desc = "High Extraversion: Action-oriented, enthusiastic. Needs social fuel.";
+                if (id.includes("ocean")) title = "Big Five Trait";
+            }
+
+            if (!value) {
+                title = "Select an attribute";
+                desc = "Hover over or change any field to see deep-dive definitions, psychological implications, and roleplay tips here.";
+            }
+
+            dom.context.innerHTML = `
+                <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700 transition-all animate-fade-in">
+                    <h4 class="text-blue-400 font-bold mb-2 text-sm">${title}</h4>
+                    <p class="text-slate-300 text-sm leading-relaxed">${desc || "A distinctive trait defining the character's existence in the world."}</p>
+                </div>
+                ${getRoleplayTip(id, value)}
+            `;
+        }
+
+        function getRoleplayTip(id, value) {
+            if (!value) return "";
+            return `
+                 <div class="p-4 bg-emerald-900/10 rounded-lg border border-emerald-900/30 mt-4 animate-fade-in">
+                    <h4 class="text-emerald-500 font-bold mb-2 text-xs uppercase tracking-wide">Roleplay Tip</h4>
+                    <p class="text-slate-400 text-xs italic">"Consider how '${value}' affects how they order a drink at a tavern or handle an insult."</p>
+                </div>
+            `;
+        }
+
+        function randomizeSection(category) {
+            const data = schema[category];
+            data.fields.forEach(field => {
+                if (field.type === 'select') {
+                    const randomOpt = field.options[Math.floor(Math.random() * field.options.length)];
+                    character[field.id] = randomOpt;
+                } else if (field.type === 'range') {
+                    character[field.id] = Math.floor(Math.random() * 100);
+                } else if (field.id === 'name') {
+                    const names = ["Kael", "Mara", "Thorne", "Elara", "Jax", "Vesper", "Silas", "Lyra", "Orion", "Nyx", "Rowan", "Sage"];
+                    const surnames = ["Vane", "Blackwood", "Frost", "Ember", "Storm", "Vale", "Thorn", "Steel", "Nightshade", "Rivera"];
+                    character[field.id] = names[Math.floor(Math.random() * names.length)] + " " + surnames[Math.floor(Math.random() * surnames.length)];
+                } else if (field.id === 'age') {
+                    character[field.id] = Math.floor(Math.random() * 60) + 18;
+                } else if (field.id === 'goal') {
+                    character[field.id] = randomPools.goals[Math.floor(Math.random() * randomPools.goals.length)];
+                } else if (field.id === 'fear') {
+                    character[field.id] = randomPools.fears[Math.floor(Math.random() * randomPools.fears.length)];
+                }
+            });
+            renderForm(category);
+        }
+
+        function randomizeAll() {
+            Object.keys(schema).forEach(cat => randomizeSection(cat));
+            switchTab(currentTab);
+        }
+
+        // --- 5. LIBRARY & FULLSCREEN ---
+
+        function saveToLibrary() {
+            const entry = {
+                id: Date.now(),
+                timestamp: Date.now(),
+                data: JSON.parse(JSON.stringify(character)),
+                generated: JSON.parse(JSON.stringify(generatedContent))
+            };
+            library.unshift(entry);
+            
+            // Feedback
+            const btn = document.querySelector('button[onclick="saveToLibrary()"]');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> Saved!`;
+            setTimeout(() => {
+                btn.innerHTML = originalHTML;
+                renderNav(); // Update counter
+            }, 1500);
+        }
+
+        function loadCharacter(index) {
+            const entry = library[index];
+            character = JSON.parse(JSON.stringify(entry.data));
+            generatedContent = JSON.parse(JSON.stringify(entry.generated));
+            switchTab('export'); // Go to export to see the results
+        }
+
+        function deleteCharacter(index) {
+            if(confirm("Delete this character from history?")) {
+                library.splice(index, 1);
+                renderLibrary();
+                renderNav(); // Update counter
+            }
+        }
+
+        function toggleFullScreenImage() {
+            const modal = document.getElementById('image-modal');
+            const modalImg = document.getElementById('modal-img');
+            const currentImg = document.querySelector('#image-output img');
+
+            if (modal.classList.contains('hidden')) {
+                // Open
+                if (!currentImg) return; // Don't open if no image
+                modalImg.src = currentImg.src;
+                modal.classList.remove('hidden');
+            } else {
+                // Close
+                modal.classList.add('hidden');
+            }
+        }
+
+        // --- 6. API INTEGRATION ---
+
+        async function generateBackstory() {
+            const btn = document.getElementById('btn-story');
+            const out = document.getElementById('story-output');
+            const length = document.getElementById('story-length').value;
+            const complexity = document.getElementById('story-complex').value;
+            
+            btn.disabled = true;
+            const originalText = btn.innerText;
+            btn.innerHTML = `<div class="loader inline-block align-middle mr-2"></div> Writing...`;
+            
+            const prompt = `Write a creative writing character backstory.
+            Length: ${length}.
+            Tone/Style: ${complexity}.
+            
+            Character Data JSON:
+            ${JSON.stringify(character, null, 2)}
+            
+            Instructions: 
+            1. Do not list stats. Write prose. 
+            2. Focus on how their Lie ('${character.lie || "internal conflict"}') interacts with their history. 
+            3. Use sensory details based on their Scent ('${character.scent || "environment"}').
+            4. If the complexity is Eldritch, make it unsettling. If simple, make it clear.`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                
+                const data = await response.json();
+                const storyText = data.candidates?.[0]?.content?.parts?.[0]?.text || "Failed to generate story.";
+                
+                // Store and render
+                const parsedStory = marked.parse(storyText);
+                generatedContent.story = parsedStory;
+                out.innerHTML = parsedStory;
+
+            } catch (e) {
+                out.innerText = "Error connecting to AI writer. Please try again.";
+                console.error(e);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        }
+
+        async function generateImage() {
+            const btn = document.getElementById('btn-image');
+            const out = document.getElementById('image-output');
+            
+            btn.disabled = true;
+            const originalText = btn.innerText;
+            btn.innerHTML = `<div class="loader inline-block align-middle mr-2"></div> Painting...`;
+            
+            const visualPrompt = `A high quality digital concept art character portrait of a ${character.sex || ""} ${character.archetype || "hero"}, 
+            ${character.physique || "average build"}, age ${character.age || "unknown"}. 
+            Style: ${character.scent ? "Atmosphere of " + character.scent : "Fantasy realism"}. 
+            Facial expression matches alignment: ${character.alignment || "neutral"}. 
+            Detailed, 8k, cinematic lighting, concept art style, solid dark background.`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        instances: [{ prompt: visualPrompt }],
+                        parameters: { sampleCount: 1 }
+                    })
+                });
+                
+                const data = await response.json();
+                if(data.predictions && data.predictions[0]) {
+                    const base64 = `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
+                    generatedContent.image = base64;
+                    out.innerHTML = `<img src="${base64}" class="w-full h-full object-cover transition-opacity duration-500 opacity-0" onload="this.classList.remove('opacity-0')">`;
+                    setTimeout(() => out.querySelector('img').classList.remove('opacity-0'), 50);
+                } else {
+                     out.innerText = "Image generation blocked or failed.";
+                }
+
+            } catch (e) {
+                out.innerText = "Error connecting to Image generator.";
+                console.error(e);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        }
+
+        // Initialize
+        const app = {
+            reset: () => {
+                if(confirm("Start a new character? Unsaved data will be lost.")) {
+                    Object.keys(character).forEach(k => character[k] = "");
+                    schema.psychology.fields.forEach(f => {
+                       if(f.type === 'range') character[f.id] = 50; 
+                    });
+                    generatedContent = { story: "", image: "" };
+                    switchTab('identity');
+                }
+            }
+        };
+
+        renderNav();
+        renderForm('identity'); // Default load
+
+    </script>
+</body>
+</html>

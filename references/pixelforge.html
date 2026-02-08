@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelForge AI (Canvas Edition)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- JSZip for Bulk Download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- Import Map -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0"
+      }
+    }
+    </script>
+
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #030712; color: #f3f4f6; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+        .loader {
+            border: 2px solid rgba(255,255,255,0.1);
+            border-left-color: #a855f7;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        /* Checkbox Styles */
+        .custom-checkbox {
+            appearance: none;
+            background-color: #1f2937;
+            margin: 0;
+            font: inherit;
+            color: currentColor;
+            width: 1.15em;
+            height: 1.15em;
+            border: 1px solid #374151;
+            border-radius: 0.25em;
+            display: grid;
+            place-content: center;
+            cursor: pointer;
+        }
+        .custom-checkbox::before {
+            content: "";
+            width: 0.65em;
+            height: 0.65em;
+            transform: scale(0);
+            transition: 120ms transform ease-in-out;
+            box-shadow: inset 1em 1em white;
+            transform-origin: center;
+            clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+        }
+        .custom-checkbox:checked::before {
+            transform: scale(1);
+        }
+        .custom-checkbox:checked {
+            background-color: #9333ea;
+            border-color: #9333ea;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Application Logic -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            Sparkles, History, Trash2, Download, Image as ImageIcon, 
+            Wand2, PlusCircle, Filter, SortDesc, SortAsc, 
+            X, ExternalLink, Menu, ChevronLeft, ChevronDown, Sun, Palette, Ban, Dices,
+            CheckSquare, Target, AlertTriangle
+        } from 'lucide-react';
+
+        // --- GLOBAL API CONFIG ---
+        const apiKey = ""; // Managed by environment
+
+        // --- CONSTANTS ---
+        const RANDOM_TYPES = [
+            { label: "Surprise Me (Any)", value: "ANY" },
+            { label: "Character/Creature", value: "CHARACTER" },
+            { label: "Location/Setting", value: "LOCATION" },
+            { label: "Object/Artifact", value: "OBJECT" },
+            { label: "Weapon/Armor", value: "WEAPON" },
+            { label: "Vehicle/Mech", value: "VEHICLE" },
+            { label: "Food/Drink", value: "FOOD" }
+        ];
+
+        const STYLES = [
+            { label: "No Style", value: "" },
+            { label: "Cyberpunk", value: ", cyberpunk style, neon lights" },
+            { label: "Anime", value: ", anime style, studio ghibli" },
+            { label: "Watercolor", value: ", watercolor painting, artistic" },
+            { label: "Photorealistic", value: ", photorealistic, 8k, cinematic" },
+            { label: "Oil Painting", value: ", oil painting, textured" },
+            { label: "3D Render", value: ", 3d render, pixar style" },
+            { label: "Pixel Art", value: ", pixel art, 16-bit" },
+            { label: "Synthwave", value: ", synthwave, retrowave" },
+            { label: "Film Noir", value: ", film noir, b&w" },
+            { label: "Origami", value: ", origami style, paper" },
+            { label: "Comic Book", value: ", comic book style, bold" },
+            { label: "Line Art", value: ", continuous line drawing, minimalist" },
+            { label: "Surrealism", value: ", surrealism, salvador dali style" },
+            { label: "Claymation", value: ", claymation, stop motion, plasticine" },
+            { label: "Horror", value: ", lovecraftian, eldritch horror, dark" },
+            { label: "Isometric", value: ", isometric view, 3d, miniature" },
+            { label: "Low Poly", value: ", low poly, geometric, polygon art" },
+            { label: "Impressionist", value: ", impressionist painting, van gogh style" },
+            { label: "Steampunk", value: ", steampunk style, brass, gears" }
+        ];
+
+        const RATIOS = [
+            { label: "Square (1:1)", value: "1:1" },
+            { label: "Landscape (16:9)", value: "16:9" },
+            { label: "Portrait (9:16)", value: "9:16" },
+            { label: "Standard (4:3)", value: "4:3" },
+            { label: "Vertical (3:4)", value: "3:4" }
+        ];
+
+        const LIGHTING = [
+            { label: "Default", value: "" },
+            { label: "Cinematic", value: ", cinematic lighting, dramatic shadows" },
+            { label: "Natural", value: ", soft natural lighting, sunlight" },
+            { label: "Golden Hour", value: ", golden hour, warm sunset lighting" },
+            { label: "Studio", value: ", studio lighting, perfect exposure" },
+            { label: "Neon", value: ", neon lighting, glowing, vibrant" },
+            { label: "Dark/Moody", value: ", dark atmosphere, dim lighting, mystery" },
+            { label: "Rembrandt", value: ", rembrandt lighting, chiaroscuro" }
+        ];
+
+        const MOODS = [
+            { label: "Default", value: "" },
+            { label: "Vibrant", value: ", vibrant colors, high saturation" },
+            { label: "Muted", value: ", muted colors, desaturated, matte" },
+            { label: "Pastel", value: ", pastel color palette, soft colors" },
+            { label: "Dark Fantasy", value: ", dark fantasy, grim, ethereal" },
+            { label: "Ethereal", value: ", ethereal, dreamy, magical" },
+            { label: "Retro", value: ", retro aesthetic, vintage filter" },
+            { label: "B&W", value: ", black and white, monochrome" }
+        ];
+
+        // --- DATABASE UTILITIES (IndexedDB) ---
+        const DB_NAME = 'PixelForgeDB';
+        const STORE_NAME = 'history';
+        const DB_VERSION = 2;
+
+        const initDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                        store.createIndex('timestamp', 'timestamp', { unique: false });
+                    }
+                };
+            });
+        };
+
+        const saveToDB = async (item) => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.put(item);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        };
+
+        const getHistoryFromDB = async () => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const index = store.index('timestamp');
+                const request = index.getAll();
+                request.onsuccess = () => resolve(request.result.reverse());
+                request.onerror = () => reject(request.error);
+            });
+        };
+
+        const deleteFromDB = async (id) => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.delete(id);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        };
+
+        // --- API HELPERS ---
+
+        const callTextAI = async (systemInstruction, userPrompt) => {
+            const model = 'gemini-2.5-flash-preview-09-2025';
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{ parts: [{ text: userPrompt }] }],
+                    systemInstruction: { parts: [{ text: systemInstruction }] },
+                    generationConfig: { temperature: 1.3 } 
+                };
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.error) throw new Error(`${model} error: ${data.error.message}`);
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+                if (!text) throw new Error("No text returned");
+                return text; 
+            } catch (e) {
+                console.error("Text API call failed:", e);
+                throw e;
+            }
+        };
+
+        const generateRandomPrompt = async (category) => {
+            let focusInstruction = "The Subject: Randomly select a new subject for every response. It can be anything—a cosmic event, a quiet domestic moment, a mythological creature, a futuristic architectural detail, or a microscopic interaction.";
+            
+            // Customize instruction based on category
+            if (category === 'CHARACTER') focusInstruction = "The Subject: Create a unique CHARACTER or CREATURE. Focus on their appearance, clothing, expression, and posture.";
+            if (category === 'LOCATION') focusInstruction = "The Subject: Create a unique LOCATION or SETTING. Focus on the architecture, landscape, weather, and atmosphere.";
+            if (category === 'OBJECT') focusInstruction = "The Subject: Create a unique OBJECT or ARTIFACT. Focus on materials, craftsmanship, wear and tear, and mysterious properties.";
+            if (category === 'WEAPON') focusInstruction = "The Subject: Create a unique WEAPON or PIECE OF ARMOR. Focus on design, functionality, materials, and magical or technological aura.";
+            if (category === 'VEHICLE') focusInstruction = "The Subject: Create a unique VEHICLE or MECH. Focus on engineering, propulsion, scale, and intended use.";
+            if (category === 'FOOD') focusInstruction = "The Subject: Create a delicious or alien FOOD or DRINK item. Focus on texture, steam, plating, and ingredients.";
+
+            const systemInstruction = `You are a visionary poet with an infinite imagination. Your task is to hallucinate a new visual scene and describe it with breathtaking eloquence.
+
+**Your Instructions:**
+1. ${focusInstruction} Never repeat a theme twice in a row.
+2. **The Tone:** Write like a master poet. Use sensory language, metaphor, and emotive adjectives. Focus deeply on lighting, texture, atmosphere, and the "feeling" of the scene.
+3. **The Constraint:** Describe **ONLY** the visual reality within the scene. Do NOT describe the artistic medium or rendering style.
+    * *BAD:* "A photorealistic oil painting of a cat."
+    * *GOOD:* "A feline silhouette bathed in amber dusk, its fur a rugged landscape of shadow and gold."
+4. **Length:** Vary your length randomly between a single punchy sentence and two lush paragraphs.
+
+**Output:** Just the description. Nothing else.`;
+
+            try {
+                return await callTextAI(systemInstruction, "Hallucinate a new visual scene now.");
+            } catch (e) {
+                console.error("All text models failed", e);
+                return "A mysterious object floating in space (API Error Fallback).";
+            }
+        };
+
+        const generateFilename = async (originalPrompt) => {
+            const systemInstruction = "You are a filename generator.";
+            const userPrompt = `Create a very short, filename-safe title (1-3 words, using underscores instead of spaces, no special chars, no file extension) that summarizes this image description: "${originalPrompt}". Output ONLY the summary.`;
+            try {
+                const name = await callTextAI(systemInstruction, userPrompt);
+                return name.replace(/[^a-zA-Z0-9_]/g, ''); 
+            } catch (e) {
+                return `Image_${Date.now()}`;
+            }
+        };
+
+        const callImagen = async (promptText, modifiers, ratioText, negPrompt) => {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
+            const fullPrompt = modifiers ? `${promptText} ${modifiers}` : promptText;
+            const payload = {
+                instances: [{ prompt: fullPrompt }],
+                parameters: { 
+                    sampleCount: 1, 
+                    aspectRatio: ratioText || "1:1",
+                    negativePrompt: negPrompt || undefined
+                }
+            };
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            
+            // Check for API errors
+            if (data.error) {
+                const errMsg = data.error.message?.toLowerCase() || "";
+                // Check specifically for content safety violations
+                if (errMsg.includes("safety") || errMsg.includes("blocked") || errMsg.includes("policy")) {
+                    throw new Error("Content Violation: This prompt triggered safety filters.");
+                }
+                throw new Error("Imagen Error: " + data.error.message);
+            }
+            
+            // Check for empty predictions (sometimes means silent block or internal error)
+            if (!data.predictions || data.predictions.length === 0 || !data.predictions[0]?.bytesBase64Encoded) {
+                throw new Error("Generation Failed: No image data returned. (Possible safety block)");
+            }
+            
+            return data.predictions[0].bytesBase64Encoded;
+        };
+
+        // --- MAIN APP COMPONENT ---
+        function App() {
+            // State
+            const [history, setHistory] = useState([]);
+            
+            // Generation State
+            const [prompt, setPrompt] = useState('');
+            const [negativePrompt, setNegativePrompt] = useState('');
+            const [style, setStyle] = useState('');
+            const [ratio, setRatio] = useState('1:1');
+            const [lighting, setLighting] = useState('');
+            const [mood, setMood] = useState('');
+            
+            // Randomizer State
+            const [randomType, setRandomType] = useState('ANY');
+            const [isRandomizerOpen, setIsRandomizerOpen] = useState(false); // NEW STATE for custom dropdown
+            
+            const [isGenerating, setIsGenerating] = useState(false);
+            const [isRandomizing, setIsRandomizing] = useState(false);
+            const [currentImage, setCurrentImage] = useState(null);
+            
+            // Notification State
+            const [processingStatus, setProcessingStatus] = useState(null);
+            
+            // Sort/Filter/Select State
+            const [sortBy, setSortBy] = useState('newest'); 
+            const [filterStyle, setFilterStyle] = useState('ALL');
+            const [selectionMode, setSelectionMode] = useState(false);
+            const [selectedItems, setSelectedItems] = useState(new Set());
+            
+            const [selectedId, setSelectedId] = useState(null);
+            const [sidebarOpen, setSidebarOpen] = useState(true);
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                refreshHistory();
+            }, []);
+
+            const refreshHistory = async () => {
+                try {
+                    const data = await getHistoryFromDB();
+                    setHistory(data);
+                } catch (e) {
+                    console.error("DB Error", e);
+                }
+            };
+
+            // Filter & Sort Logic
+            const filteredHistory = useMemo(() => {
+                let result = [...history];
+                if (filterStyle !== 'ALL') {
+                    result = result.filter(item => item.style === filterStyle);
+                }
+                result.sort((a, b) => {
+                    if (sortBy === 'newest') return b.timestamp - a.timestamp;
+                    return a.timestamp - b.timestamp;
+                });
+                return result;
+            }, [history, sortBy, filterStyle]);
+
+            const handleGenerate = async () => {
+                if (!prompt) return;
+
+                setIsGenerating(true);
+                setProcessingStatus("Dreaming up image...");
+                setError(null);
+
+                try {
+                    // 1. Generate Image
+                    const modifiers = style + lighting + mood;
+                    const newImageBase64 = await callImagen(prompt, modifiers, ratio, negativePrompt);
+
+                    // 2. Generate Filename (API Call)
+                    setProcessingStatus("Generating title...");
+                    let filename = `PixelForge-${Date.now()}`;
+                    try {
+                        filename = await generateFilename(prompt);
+                    } catch (e) {
+                        console.warn("Filename generation failed, using default", e);
+                    }
+
+                    setProcessingStatus("Saving to gallery...");
+                    const newItem = {
+                        id: crypto.randomUUID(),
+                        timestamp: Date.now(),
+                        prompt: prompt,
+                        negativePrompt: negativePrompt,
+                        style: style,
+                        ratio: ratio,
+                        lighting: lighting,
+                        mood: mood,
+                        base64: newImageBase64,
+                        filename: filename
+                    };
+
+                    await saveToDB(newItem);
+                    setHistory(prev => [newItem, ...prev]);
+                    
+                    setCurrentImage(newItem);
+                    setSelectedId(newItem.id);
+
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setIsGenerating(false);
+                    setProcessingStatus(null);
+                }
+            };
+
+            const handleRandomize = async () => {
+                setIsRandomizing(true);
+                setProcessingStatus(`Hallucinating ${randomType.toLowerCase()}...`);
+                setError(null);
+                try {
+                    // 1. Randomize Dropdowns
+                    const randomStyle = STYLES[Math.floor(Math.random() * STYLES.length)].value;
+                    const randomRatio = RATIOS[Math.floor(Math.random() * RATIOS.length)].value;
+                    const randomLighting = LIGHTING[Math.floor(Math.random() * LIGHTING.length)].value;
+                    const randomMood = MOODS[Math.floor(Math.random() * MOODS.length)].value;
+
+                    setStyle(randomStyle);
+                    setRatio(randomRatio);
+                    setLighting(randomLighting);
+                    setMood(randomMood);
+
+                    // 2. Generate Random Prompt based on Type
+                    const randomPrompt = await generateRandomPrompt(randomType);
+                    setPrompt(randomPrompt);
+
+                } catch (err) {
+                    setError("Randomizer failed: " + err.message);
+                } finally {
+                    setIsRandomizing(false);
+                    setProcessingStatus(null);
+                }
+            };
+
+            const handleDownload = (item) => {
+                const link = document.createElement('a');
+                link.href = `data:image/png;base64,${item.base64}`;
+                link.download = item.filename ? `${item.filename}.png` : `pixelforge-${item.timestamp}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            const selectItem = (item) => {
+                if (selectionMode) {
+                    toggleSelection(item.id);
+                    return;
+                }
+                setCurrentImage(item);
+                setSelectedId(item.id);
+                
+                // RELOAD ALL SETTINGS
+                setPrompt(item.prompt || "");
+                setNegativePrompt(item.negativePrompt || "");
+                setStyle(item.style || "");
+                setRatio(item.ratio || "1:1");
+                setLighting(item.lighting || "");
+                setMood(item.mood || "");
+            };
+
+            const toggleSelection = (id) => {
+                const newSelected = new Set(selectedItems);
+                if (newSelected.has(id)) {
+                    newSelected.delete(id);
+                } else {
+                    newSelected.add(id);
+                }
+                setSelectedItems(newSelected);
+            };
+
+            const toggleSelectionMode = () => {
+                if (selectionMode) {
+                    setSelectionMode(false);
+                    setSelectedItems(new Set());
+                } else {
+                    setSelectionMode(true);
+                }
+            };
+
+            const toggleSelectAll = () => {
+                const allSelected = filteredHistory.length > 0 && filteredHistory.every(item => selectedItems.has(item.id));
+                if (allSelected) {
+                    setSelectedItems(new Set());
+                } else {
+                    const allIds = new Set(filteredHistory.map(item => item.id));
+                    setSelectedItems(allIds);
+                }
+            };
+
+            const handleBulkDelete = async () => {
+                if (confirm(`Delete ${selectedItems.size} items?`)) {
+                    for (const id of selectedItems) {
+                        await deleteFromDB(id);
+                    }
+                    refreshHistory();
+                    setSelectedItems(new Set());
+                    if (selectedItems.has(selectedId)) {
+                        resetToNew();
+                    }
+                }
+            };
+
+            const handleBulkDownload = async () => {
+                if (selectedItems.size === 0) return;
+                setProcessingStatus("Zipping files...");
+                
+                try {
+                    const zip = new JSZip();
+                    const folder = zip.folder("PixelForge_Images");
+                    
+                    history.filter(item => selectedItems.has(item.id)).forEach(item => {
+                        const filename = item.filename ? `${item.filename}.png` : `image_${item.timestamp}.png`;
+                        folder.file(filename, item.base64, {base64: true});
+                    });
+                    
+                    const content = await zip.generateAsync({type:"blob"});
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(content);
+                    link.download = "pixelforge_batch.zip";
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } catch (e) {
+                    console.error("Zip failed", e);
+                    setError("Failed to zip files");
+                } finally {
+                    setProcessingStatus(null);
+                }
+            };
+
+            const resetToNew = () => {
+                setCurrentImage(null);
+                setSelectedId(null);
+                setPrompt('');
+                setNegativePrompt('');
+                setStyle('');
+                setRatio('1:1');
+                setLighting('');
+                setMood('');
+            };
+
+            const handleDelete = async (e, id) => {
+                e.stopPropagation();
+                if (confirm("Delete this image?")) {
+                    await deleteFromDB(id);
+                    setHistory(prev => prev.filter(i => i.id !== id));
+                    if (selectedId === id) resetToNew();
+                }
+            };
+
+            return (
+                <div className="flex h-screen bg-gray-950 text-gray-100 font-sans overflow-hidden relative">
+                    
+                    {/* STATUS NOTIFICATION PILL */}
+                    {processingStatus && (
+                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 bg-gray-900/95 border border-purple-500/50 rounded-full shadow-2xl backdrop-blur-md animate-in slide-in-from-top-2 fade-in duration-200">
+                            <div className="loader w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin"></div>
+                            <span className="text-xs font-semibold text-purple-100 uppercase tracking-wide">{processingStatus}</span>
+                        </div>
+                    )}
+
+                    {/* SIDEBAR */}
+                    <div className={`${sidebarOpen ? 'w-80' : 'w-0'} bg-gray-900 border-r border-gray-800 transition-all duration-300 flex flex-col shrink-0 relative`}>
+                        <div className="p-4 border-b border-gray-800 flex justify-between items-center whitespace-nowrap overflow-hidden">
+                            <div className="flex items-center gap-2 text-purple-400">
+                                <History size={18} />
+                                <span className="font-bold">History</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <button 
+                                    onClick={toggleSelectionMode} 
+                                    className={`p-1.5 rounded transition-colors ${selectionMode ? 'text-purple-400 bg-purple-400/10' : 'text-gray-500 hover:text-white'}`}
+                                    title={selectionMode ? "Cancel Selection" : "Select Multiple"}
+                                >
+                                    {selectionMode ? <X size={16} /> : <CheckSquare size={16} />}
+                                </button>
+                                <button onClick={() => setSidebarOpen(false)} className="md:hidden text-gray-500"><ChevronLeft/></button>
+                            </div>
+                        </div>
+
+                        {/* Sort & Filter */}
+                        <div className="p-3 border-b border-gray-800 grid grid-cols-2 gap-2 bg-gray-900/50">
+                            <div className="relative">
+                                <select 
+                                    value={sortBy} 
+                                    onChange={(e) => setSortBy(e.target.value)}
+                                    className="w-full bg-gray-950 border border-gray-800 text-gray-400 text-xs rounded-lg p-2 pl-8 appearance-none focus:border-purple-500 outline-none cursor-pointer"
+                                >
+                                    <option value="newest">Newest</option>
+                                    <option value="oldest">Oldest</option>
+                                </select>
+                                <div className="absolute left-2.5 top-2.5 text-gray-500 pointer-events-none">
+                                    {sortBy === 'newest' ? <SortDesc size={12} /> : <SortAsc size={12} />}
+                                </div>
+                            </div>
+                            <div className="relative">
+                                <select 
+                                    value={filterStyle} 
+                                    onChange={(e) => setFilterStyle(e.target.value)}
+                                    className="w-full bg-gray-950 border border-gray-800 text-gray-400 text-xs rounded-lg p-2 pl-8 appearance-none focus:border-purple-500 outline-none cursor-pointer"
+                                >
+                                    <option value="ALL">All Styles</option>
+                                    {STYLES.filter(s => s.value).map((s, i) => (
+                                        <option key={i} value={s.value}>{s.label}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute left-2.5 top-2.5 text-gray-500 pointer-events-none">
+                                    <Filter size={12} />
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {/* Bulk Actions Bar */}
+                        {selectionMode && (
+                            <div className="p-2 bg-purple-900/20 border-b border-purple-500/20 flex justify-between items-center px-4 animate-in slide-in-from-top-2">
+                                <div className="flex items-center gap-2">
+                                    <input 
+                                        type="checkbox" 
+                                        className="custom-checkbox"
+                                        checked={filteredHistory.length > 0 && filteredHistory.every(item => selectedItems.has(item.id))}
+                                        onChange={toggleSelectAll}
+                                        title="Select All"
+                                    />
+                                    <span className="text-xs text-purple-200 font-medium">{selectedItems.size} selected</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={handleBulkDownload} disabled={selectedItems.size === 0} className="p-1.5 hover:bg-purple-500/20 rounded text-purple-200 disabled:opacity-50" title="Download Zip">
+                                        <Download size={14} />
+                                    </button>
+                                    <button onClick={handleBulkDelete} disabled={selectedItems.size === 0} className="p-1.5 hover:bg-red-500/20 rounded text-red-300 disabled:opacity-50" title="Delete Selected">
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* History List */}
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                            {filteredHistory.length === 0 ? (
+                                <div className="text-center text-gray-600 mt-10 text-xs">
+                                    {history.length === 0 ? "No history yet" : "No matches found"}
+                                </div>
+                            ) : (
+                                filteredHistory.map(item => (
+                                    <div 
+                                        key={item.id}
+                                        onClick={() => selectItem(item)}
+                                        className={`group relative p-2 rounded-lg border cursor-pointer transition-all flex gap-3 items-center ${
+                                            selectedId === item.id && !selectionMode ? 'bg-gray-800 border-purple-500/50' : 
+                                            selectionMode && selectedItems.has(item.id) ? 'bg-purple-900/20 border-purple-500/50' : 
+                                            'bg-gray-950 border-gray-800 hover:bg-gray-800'
+                                        }`}
+                                    >
+                                        {/* Selection Checkbox Overlay */}
+                                        {selectionMode && (
+                                            <div className="absolute inset-0 z-10 flex items-center pl-2" onClick={(e) => { e.stopPropagation(); toggleSelection(item.id); }}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={selectedItems.has(item.id)} 
+                                                    readOnly
+                                                    className="custom-checkbox ml-1"
+                                                />
+                                            </div>
+                                        )}
+
+                                        <div className={`w-12 h-12 bg-black rounded overflow-hidden shrink-0 ${selectionMode ? 'opacity-50 ml-6' : ''} transition-all`}>
+                                            <img src={`data:image/png;base64,${item.base64}`} className="w-full h-full object-cover" loading="lazy" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-xs text-gray-300 truncate font-medium">{item.filename || item.prompt}</p>
+                                            <div className="flex justify-between items-center mt-0.5">
+                                                <p className="text-[10px] text-gray-500">{new Date(item.timestamp).toLocaleTimeString()}</p>
+                                                {item.style && (
+                                                    <span className="text-[9px] bg-gray-800 text-gray-400 px-1.5 rounded truncate max-w-[60px]">
+                                                        {STYLES.find(s => s.value === item.style)?.label || "Custom"}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {!selectionMode && (
+                                            <button 
+                                                onClick={(e) => handleDelete(e, item.id)}
+                                                className="absolute right-2 top-2 p-1.5 bg-gray-800 text-gray-500 hover:text-red-400 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <Trash2 size={12} />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    {/* MAIN CONTENT */}
+                    <div className="flex-1 flex flex-col relative h-full">
+                        
+                        {/* HEADER */}
+                        <header className="h-16 border-b border-gray-800 bg-gray-950/50 flex items-center justify-between px-4 shrink-0">
+                            <div className="flex items-center gap-3">
+                                {!sidebarOpen && (
+                                    <button onClick={() => setSidebarOpen(true)} className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800">
+                                        <Menu size={20} />
+                                    </button>
+                                )}
+                                <div className="flex items-center gap-2">
+                                    <div className="bg-gradient-to-tr from-purple-500 to-pink-500 p-1.5 rounded-lg">
+                                        <Sparkles className="text-white w-4 h-4" />
+                                    </div>
+                                    <h1 className="font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+                                        PixelForge AI
+                                    </h1>
+                                </div>
+                            </div>
+                        </header>
+
+                        {/* WORKSPACE */}
+                        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+                            
+                            {/* CONTROLS (LEFT) */}
+                            <div className="w-full lg:w-96 p-6 border-r border-gray-800 bg-gray-950 overflow-y-auto shrink-0 flex flex-col gap-6">
+                                
+                                <div className="flex justify-between items-center">
+                                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        Create New Image
+                                    </div>
+                                    <button onClick={resetToNew} className="text-xs flex items-center gap-1 text-purple-400 hover:text-purple-300">
+                                        <PlusCircle size={12} /> Clear
+                                    </button>
+                                </div>
+
+                                {/* Prompt & Randomizer */}
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-end">
+                                            <label className="text-xs font-semibold text-gray-400 uppercase mb-1">Prompt</label>
+                                            
+                                            {/* Randomizer Toolbar */}
+                                            <div className="relative flex items-center gap-1 bg-gray-900 p-1 rounded-lg border border-gray-800">
+                                                
+                                                {/* Custom Category Dropdown */}
+                                                <div className="relative">
+                                                    <button 
+                                                        onClick={() => setIsRandomizerOpen(!isRandomizerOpen)}
+                                                        className="flex items-center gap-2 px-2 py-1 text-xs text-gray-400 hover:text-white transition-colors focus:outline-none"
+                                                        title="Select Randomizer Category"
+                                                    >
+                                                        <span className="font-medium">
+                                                            {RANDOM_TYPES.find(t => t.value === randomType)?.label}
+                                                        </span>
+                                                        <ChevronDown size={12} />
+                                                    </button>
+
+                                                    {/* Dropdown Menu Overlay */}
+                                                    {isRandomizerOpen && (
+                                                        <>
+                                                            <div 
+                                                                className="fixed inset-0 z-40" 
+                                                                onClick={() => setIsRandomizerOpen(false)}
+                                                            ></div>
+                                                            <div className="absolute top-full left-0 mt-1 w-48 bg-gray-900 border border-gray-800 rounded-lg shadow-xl z-50 overflow-hidden py-1 animate-in fade-in zoom-in-95 duration-100">
+                                                                {RANDOM_TYPES.map((t) => (
+                                                                    <button
+                                                                        key={t.value}
+                                                                        onClick={() => {
+                                                                            setRandomType(t.value);
+                                                                            setIsRandomizerOpen(false);
+                                                                        }}
+                                                                        className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-800 transition-colors flex items-center justify-between ${randomType === t.value ? 'text-purple-400 bg-gray-800/50' : 'text-gray-300'}`}
+                                                                    >
+                                                                        <span>{t.label}</span>
+                                                                        {randomType === t.value && <CheckSquare size={10} />}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
+
+                                                {/* Separator */}
+                                                <div className="w-px h-4 bg-gray-700 mx-1"></div>
+
+                                                {/* Dice Button */}
+                                                <button 
+                                                    onClick={handleRandomize} 
+                                                    disabled={isRandomizing}
+                                                    className="p-1.5 bg-gray-800 hover:bg-blue-600 text-blue-400 hover:text-white rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm border border-gray-700 hover:border-blue-500 group"
+                                                    title="Roll the Dice"
+                                                >
+                                                    {isRandomizing ? (
+                                                        <div className="loader w-3.5 h-3.5 border-2 border-current"></div>
+                                                    ) : (
+                                                        <Dices size={16} className="group-hover:rotate-180 transition-transform duration-500" />
+                                                    )} 
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <textarea 
+                                            value={prompt}
+                                            onChange={(e) => setPrompt(e.target.value)}
+                                            placeholder="A futuristic city..."
+                                            className="w-full h-24 bg-gray-900 border border-gray-800 rounded-xl p-4 text-sm text-gray-200 focus:ring-2 focus:ring-purple-500 outline-none resize-none placeholder-gray-600"
+                                        ></textarea>
+                                    </div>
+                                    
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-semibold text-gray-400 uppercase flex items-center gap-1">
+                                            <Ban size={12} /> Exclude (Negative)
+                                        </label>
+                                        <input 
+                                            value={negativePrompt}
+                                            onChange={(e) => setNegativePrompt(e.target.value)}
+                                            placeholder="Blurry, low quality, distorted..."
+                                            className="w-full bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm text-gray-200 focus:ring-2 focus:ring-purple-500 outline-none"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Dropdowns */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-semibold text-gray-400 uppercase">Style</label>
+                                        <select value={style} onChange={(e) => setStyle(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-gray-200 text-sm rounded-lg p-2.5 outline-none">
+                                            {STYLES.map((s, i) => <option key={i} value={s.value}>{s.label}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-semibold text-gray-400 uppercase">Ratio</label>
+                                        <select value={ratio} onChange={(e) => setRatio(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-gray-200 text-sm rounded-lg p-2.5 outline-none">
+                                            {RATIOS.map((r, i) => <option key={i} value={r.value}>{r.label}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-semibold text-gray-400 uppercase flex items-center gap-1"><Sun size={12}/> Lighting</label>
+                                        <select value={lighting} onChange={(e) => setLighting(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-gray-200 text-sm rounded-lg p-2.5 outline-none">
+                                            {LIGHTING.map((l, i) => <option key={i} value={l.value}>{l.label}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-semibold text-gray-400 uppercase flex items-center gap-1"><Palette size={12}/> Mood</label>
+                                        <select value={mood} onChange={(e) => setMood(e.target.value)} className="w-full bg-gray-900 border border-gray-800 text-gray-200 text-sm rounded-lg p-2.5 outline-none">
+                                            {MOODS.map((m, i) => <option key={i} value={m.value}>{m.label}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <button 
+                                    onClick={handleGenerate} 
+                                    disabled={isGenerating || !prompt}
+                                    className={`w-full py-4 rounded-xl font-bold text-white shadow-xl flex items-center justify-center gap-2 transition-all bg-gradient-to-r from-purple-600 to-pink-600 ${isGenerating || !prompt ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02] hover:shadow-purple-500/25'}`}
+                                >
+                                    {isGenerating ? (
+                                        <>
+                                            <div className="loader w-4 h-4 border-2"></div>
+                                            <span>Dreaming...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Wand2 size={20} />
+                                            <span>Generate</span>
+                                        </>
+                                    )}
+                                </button>
+                                
+                                {error && (
+                                    <div className="p-3 bg-red-900/20 text-red-200 text-xs rounded border border-red-900/50 flex items-start gap-2">
+                                        <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                                        <div className="whitespace-pre-wrap">{error}</div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* PREVIEW (RIGHT) */}
+                            <div className="flex-1 bg-gray-950 p-6 flex items-center justify-center relative bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-gray-900 via-gray-950 to-gray-950">
+                                {currentImage ? (
+                                    <div className="relative group max-w-full max-h-full animate-in fade-in zoom-in duration-300">
+                                        <img 
+                                            src={`data:image/png;base64,${currentImage.base64}`} 
+                                            className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl border border-gray-800" 
+                                        />
+                                        <div className="absolute bottom-4 right-4 flex gap-2">
+                                            <button 
+                                                onClick={() => handleDownload(currentImage)}
+                                                className="p-2 bg-black/50 hover:bg-black/80 text-white rounded-lg backdrop-blur-md transition-colors border border-white/10"
+                                                title="Download to Computer"
+                                            >
+                                                <Download size={20} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-center opacity-30">
+                                        <ImageIcon className="w-16 h-16 mx-auto mb-4" />
+                                        <p>Ready to create</p>
+                                    </div>
+                                )}
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
