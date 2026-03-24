@@ -2,7 +2,7 @@ import React from 'react'
 import {
   Fingerprint, Dumbbell, ScanFace, Footprints, Brain, BookOpen,
   MessagesSquare, Flame, Sparkles, Upload, Shirt, BookMarked,
-  Settings, Dice5, Save, ChevronLeft, Dna
+  Settings, Dice5, Save, ChevronLeft, Dna, Loader2
 } from 'lucide-react'
 import packageJson from '../../../package.json'
 import { CHARACTER_SECTIONS } from '../../data/schemas'
@@ -29,6 +29,7 @@ const SPECIAL_TABS = [
 
 export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggleSidebar, onOpenSettings }) {
   const randomizeAll = useCharacterStore(s => s.randomizeAll)
+  const isGenerating = useCharacterStore(s => s.isGenerating)
   const getSaveData = useCharacterStore(s => s.getSaveData)
   const addToast = useToastStore(s => s.addToast)
 
@@ -42,9 +43,12 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
     }
   }
 
-  const handleRandomize = () => {
-    randomizeAll()
-    addToast('All attributes randomized!', 'info')
+  const handleRandomize = async () => {
+    const result = await randomizeAll()
+    if (result.source === 'llm') {
+      addToast('Character generated with AI.', 'success')
+    }
+    // Local paths: store already toasts (no API key info, or error + fallback).
   }
 
   if (!sidebarOpen) return null
@@ -134,11 +138,13 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
           <span>Save to Library</span>
         </button>
         <button
+          type="button"
+          disabled={isGenerating}
           onClick={handleRandomize}
-          className="btn-primary w-full flex items-center justify-center gap-2 text-sm"
+          className="btn-primary w-full flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
         >
-          <Dice5 size={14} />
-          <span>Randomize All</span>
+          {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Dice5 size={14} />}
+          <span>{isGenerating ? 'Generating…' : 'Randomize All'}</span>
         </button>
       </div>
     </aside>

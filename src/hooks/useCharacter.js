@@ -1,10 +1,106 @@
 import { create } from 'zustand'
-import { getDefaultCharacter, CHARACTER_SECTIONS } from '../data/schemas'
-import { randomFrom, randomRange, randomName, randomGoals, randomFears, randomDesires, randomTrauma, randomQuirks, randomMoralCodes, randomPrejudices } from '../data/randomPools'
+import { getDefaultCharacter, CHARACTER_SECTIONS, getAllFieldIds } from '../data/schemas'
+import { randomFrom, randomRange, randomName } from '../data/randomPools'
 import { generateId } from '../utils/imageUtils'
 import { getSetting, saveSetting } from '../utils/db'
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
 import { fetchGeminiModels } from '../utils/models'
+import { generateCharacterProfile } from '../utils/api'
+import { useToastStore } from './useToast'
+
+function buildFieldById() {
+  const map = {}
+  Object.values(CHARACTER_SECTIONS).forEach((section) => {
+    section.fields.forEach((field) => {
+      map[field.id] = field
+    })
+  })
+  return map
+}
+
+const FIELD_BY_ID = buildFieldById()
+
+function randomSelectValue(field) {
+  const opts = field.options.includes('Custom')
+    ? field.options.filter((o) => o !== 'Custom')
+    : field.options
+  return randomFrom(opts)
+}
+
+function pickLockedFromCharacter(character, lockedFields) {
+  const out = {}
+  Object.keys(lockedFields).forEach((id) => {
+    if (lockedFields[id]) out[id] = character[id]
+  })
+  return out
+}
+
+/** Pool-based full randomize; respects lockedFields by copying values from `character`. */
+function buildLocalRandomizedCharacter(lockedFields, character) {
+  const nextCharacter = { ...getDefaultCharacter() }
+
+  Object.keys(lockedFields).forEach((id) => {
+    if (lockedFields[id]) nextCharacter[id] = character[id]
+  })
+
+  Object.keys(CHARACTER_SECTIONS).forEach((sectionKey) => {
+    const section = CHARACTER_SECTIONS[sectionKey]
+    section.fields.forEach((field) => {
+      if (field.conditional) return
+      if (lockedFields[field.id]) return
+
+      switch (field.type) {
+        case 'select':
+          nextCharacter[field.id] = randomSelectValue(field)
+          break
+        case 'range':
+          nextCharacter[field.id] = randomRange(field.min ?? 0, field.max ?? 100)
+          break
+        case 'number':
+          if (field.id === 'age') nextCharacter[field.id] = randomRange(18, 80)
+          break
+        case 'text':
+          if (field.id === 'name') nextCharacter[field.id] = randomName()
+          break
+      }
+    })
+  })
+
+  return nextCharacter
+}
+
+function sanitizeLlmCharacter(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid character payload')
+  }
+  const defaults = getDefaultCharacter()
+  const out = { ...defaults }
+  const allowed = getAllFieldIds()
+
+  for (const id of allowed) {
+    if (!Object.prototype.hasOwnProperty.call(parsed, id)) continue
+    const field = FIELD_BY_ID[id]
+    if (!field) continue
+    const v = parsed[id]
+
+    if (field.type === 'range') {
+      const n = Number(v)
+      out[id] = Number.isFinite(n)
+        ? Math.min(field.max ?? 100, Math.max(field.min ?? 0, Math.round(n)))
+        : defaults[id]
+    } else if (field.type === 'number' && id === 'age') {
+      const n = parseInt(v, 10)
+      out[id] = Number.isFinite(n) ? Math.min(80, Math.max(18, n)) : defaults[id]
+    } else if (field.type === 'select') {
+      const s = String(v)
+      out[id] = field.options.includes(s) ? s : defaults[id]
+    } else {
+      out[id] = v === null || v === undefined ? '' : String(v)
+    }
+  }
+
+  return out
+}
 
 export const useCharacterStore = create((set, get) => ({
   // Character data
@@ -28,6 +124,8 @@ export const useCharacterStore = create((set, get) => ({
   availableImageModels: [],
   selectedTextModel: DEFAULT_TEXT_MODEL,
   selectedImageModel: DEFAULT_IMAGE_MODEL,
+
+  isGenerating: false,
 
   /** @type {Record<string, true>} field ids that stay fixed on randomize */
   lockedFields: {},
@@ -162,7 +260,7 @@ export const useCharacterStore = create((set, get) => ({
 
       switch (field.type) {
         case 'select':
-          updates[field.id] = randomFrom(field.options)
+          updates[field.id] = randomSelectValue(field)
           break
         case 'range':
           updates[field.id] = randomRange(field.min ?? 0, field.max ?? 100)
@@ -171,15 +269,7 @@ export const useCharacterStore = create((set, get) => ({
           if (field.id === 'age') updates[field.id] = randomRange(18, 80)
           break
         case 'text':
-          // Handle specific text fields with pools
           if (field.id === 'name') updates[field.id] = randomName()
-          else if (field.id === 'goal') updates[field.id] = randomFrom(randomGoals)
-          else if (field.id === 'fear') updates[field.id] = randomFrom(randomFears)
-          else if (field.id === 'desire') updates[field.id] = randomFrom(randomDesires)
-          else if (field.id === 'trauma') updates[field.id] = randomFrom(randomTrauma)
-          else if (field.id === 'quirk') updates[field.id] = randomFrom(randomQuirks)
-          else if (field.id === 'moral_code') updates[field.id] = randomFrom(randomMoralCodes)
-          else if (field.id === 'prejudice') updates[field.id] = randomFrom(randomPrejudices)
           break
       }
     })
@@ -189,46 +279,61 @@ export const useCharacterStore = create((set, get) => ({
     }))
   },
 
-  // Randomize ALL sections
-  randomizeAll: () => {
-    const { lockedFields, character } = get()
-    const nextCharacter = { ...getDefaultCharacter() }
+  /**
+   * Randomize all sections via Gemini when an API key is set; otherwise local pools.
+   * On API/JSON failure, falls back to local randomization and shows an error toast.
+   * @returns {Promise<{ source: 'llm' | 'local', reason?: string }>}
+   */
+  randomizeAll: async () => {
+    const { lockedFields, character, apiKey, selectedTextModel } = get()
+    const toast = useToastStore.getState().addToast
 
-    Object.keys(lockedFields).forEach((id) => {
-      if (lockedFields[id]) nextCharacter[id] = character[id]
-    })
+    const applyLocal = (reason) => {
+      const next = buildLocalRandomizedCharacter(lockedFields, character)
+      set({ character: next })
+      return reason ? { source: 'local', reason } : { source: 'local' }
+    }
 
-    Object.keys(CHARACTER_SECTIONS).forEach(sectionKey => {
-      const section = CHARACTER_SECTIONS[sectionKey]
-      section.fields.forEach(field => {
-        if (field.conditional) return
-        if (lockedFields[field.id]) return
+    if (!apiKey?.trim()) {
+      const r = applyLocal('no_api_key')
+      toast('Add an API key in Settings to use AI randomization.', 'info')
+      return r
+    }
 
-        switch (field.type) {
-          case 'select':
-            nextCharacter[field.id] = randomFrom(field.options)
-            break
-          case 'range':
-            nextCharacter[field.id] = randomRange(field.min ?? 0, field.max ?? 100)
-            break
-          case 'number':
-            if (field.id === 'age') nextCharacter[field.id] = randomRange(18, 80)
-            break
-          case 'text':
-            if (field.id === 'name') nextCharacter[field.id] = randomName()
-            else if (field.id === 'goal') nextCharacter[field.id] = randomFrom(randomGoals)
-            else if (field.id === 'fear') nextCharacter[field.id] = randomFrom(randomFears)
-            else if (field.id === 'desire') nextCharacter[field.id] = randomFrom(randomDesires)
-            else if (field.id === 'trauma') nextCharacter[field.id] = randomFrom(randomTrauma)
-            else if (field.id === 'quirk') nextCharacter[field.id] = randomFrom(randomQuirks)
-            else if (field.id === 'moral_code') nextCharacter[field.id] = randomFrom(randomMoralCodes)
-            else if (field.id === 'prejudice') nextCharacter[field.id] = randomFrom(randomPrejudices)
-            break
-        }
-      })
-    })
+    set({ isGenerating: true })
+    try {
+      let parsed
+      try {
+        parsed = await generateCharacterProfile(
+          CHARACTER_SECTIONS,
+          selectedTextModel,
+          apiKey.trim(),
+          character
+        )
+      } catch (e) {
+        console.error('generateCharacterProfile failed:', e)
+        toast(
+          `AI randomization failed (${e instanceof Error ? e.message : 'unknown error'}). Used local random values.`,
+          'error'
+        )
+        return applyLocal('api_error')
+      }
 
-    set({ character: nextCharacter })
+      let sanitized
+      try {
+        sanitized = sanitizeLlmCharacter(parsed)
+      } catch (e) {
+        console.error('sanitizeLlmCharacter failed:', e)
+        toast('Invalid AI response. Used local random values.', 'error')
+        return applyLocal('parse_error')
+      }
+
+      const lockedSlice = pickLockedFromCharacter(character, lockedFields)
+      set({ character: { ...sanitized, ...lockedSlice } })
+      return { source: 'llm' }
+    } finally {
+      set({ isGenerating: false })
+    }
   },
 
   // Load a saved character

@@ -34,6 +34,116 @@ export async function generateText(apiKey, systemInstruction, userPrompt, option
   return text
 }
 
+/**
+ * Strip markdown code fences and parse the first JSON object from model text.
+ * @param {string} text
+ * @returns {object}
+ */
+export function parseJsonFromModelText(text) {
+  let s = String(text).trim()
+  const fenceMatch = s.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/im)
+  if (fenceMatch) s = fenceMatch[1].trim()
+  try {
+    return JSON.parse(s)
+  } catch {
+    const start = s.indexOf('{')
+    const end = s.lastIndexOf('}')
+    if (start === -1 || end === -1 || end <= start) {
+      throw new Error('Model response did not contain valid JSON')
+    }
+    return JSON.parse(s.slice(start, end + 1))
+  }
+}
+
+function buildCharacterFieldSpecFromSchema(schema) {
+  const fields = []
+  for (const section of Object.values(schema)) {
+    for (const field of section.fields) {
+      const entry = { id: field.id, type: field.type }
+      if (field.conditional) {
+        entry.onlyWhen = { field: field.conditional.field, equals: field.conditional.value }
+      }
+      if (field.type === 'select') entry.options = [...field.options]
+      if (field.type === 'range') {
+        entry.min = field.min ?? 0
+        entry.max = field.max ?? 100
+      }
+      if (field.type === 'number' && field.id === 'age') {
+        entry.min = 18
+        entry.max = 80
+      }
+      fields.push(entry)
+    }
+  }
+  return fields
+}
+
+const CHARACTER_PROFILE_SYSTEM_PROMPT = `You are an expert character designer for fiction and games. Your task is to invent one cohesive original character.
+
+You MUST output a single JSON object only. No markdown, no code fences, no commentary before or after the JSON.
+
+CRITICAL — Demographic Consistency:
+- If Gender Identity is "Transgender Man", Biological Sex MUST be "Female".
+- If Gender Identity is "Transgender Woman", Biological Sex MUST be "Male".
+- For cisgender alignment: if gender is "Man", biological sex should be "Male"; if "Woman", biological sex should be "Female". For other gender identities, keep sex and gender logically consistent with the definitions above.
+
+CRITICAL — Psychological Consistency (MBTI and OCEAN Big Five):
+- Choose an MBTI type first, then set OCEAN sliders (0–100) so they align: E = high Extraversion, I = low Extraversion. N = high Openness, S = low Openness. F = high Agreeableness, T = low Agreeableness. J = high Conscientiousness, P = low Conscientiousness.
+- Neuroticism (ocean_n) is not determined by MBTI letters; set it freely for character depth.
+
+CRITICAL — Narrative quality:
+- Text fields such as origin/race_ethnicity, goal, fear, desire, trauma, quirk, moral_code, prejudice, scars, distinguishing features, kinks, etc. must be highly creative, specific, and non-cliché. Avoid generic phrases.
+
+Rules for the JSON:
+- Every key listed in the field specification must appear exactly once.
+- For "select" fields, values MUST be copied verbatim from the allowed options list.
+- For "range" fields, use integers within the given min/max.
+- For "text" fields, use strings; use "" if nothing applies.
+- For conditional fields (onlyWhen), use a meaningful string when the condition holds, otherwise "".
+- For "number" age, use an integer from 18 to 80.`
+
+/**
+ * Ask Gemini for a full character profile as JSON matching the app schema.
+ * @param {object} schema — same shape as CHARACTER_SECTIONS
+ * @param {string} modelId
+ * @param {string} apiKey
+ * @param {Record<string, unknown>} currentCharacterState
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function generateCharacterProfile(schema, modelId, apiKey, currentCharacterState) {
+  const fieldSpec = buildCharacterFieldSpecFromSchema(schema)
+  const stateSummary = Object.entries(currentCharacterState || {})
+    .filter(([_, v]) => v !== '' && v !== null && v !== undefined)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')
+
+  const userPrompt = `Generate one new random character. Return ONLY valid JSON (no markdown, no code fences).
+
+Field specification (each object describes one character attribute):
+${JSON.stringify(fieldSpec)}
+
+Optional tone reference from the user's current sheet (you may ignore or diverge):
+${stateSummary || '(empty)'}
+
+Remember: every field id in the spec must be present in your JSON object with a valid value for its type and constraints.`
+
+  const raw = await generateText(apiKey, CHARACTER_PROFILE_SYSTEM_PROMPT, userPrompt, {
+    temperature: 0.95,
+    modelId,
+  })
+
+  try {
+    const parsed = parseJsonFromModelText(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Parsed JSON is not an object')
+    }
+    return parsed
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to parse character JSON: ${msg}`)
+  }
+}
+
 // --- Vision Analysis (Gemini) ---
 
 export async function analyzeImage(apiKey, base64Image, prompt, options = {}) {
