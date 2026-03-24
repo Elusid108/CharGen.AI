@@ -26,6 +26,11 @@ export default function App() {
     if (!apiKey) setShowSettings(true)
   }, [apiKey])
 
+  useEffect(() => {
+    if (!apiKey?.trim()) return
+    void useCharacterStore.getState().refreshModels(apiKey)
+  }, [apiKey])
+
   const isFormTab = FORM_TABS.includes(currentTab)
 
   return (

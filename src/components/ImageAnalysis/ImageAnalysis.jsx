@@ -8,6 +8,7 @@ import { fileToBase64, base64ToDataUrl } from '../../utils/imageUtils'
 
 export default function ImageAnalysis() {
   const apiKey = useCharacterStore(s => s.apiKey)
+  const selectedTextModel = useCharacterStore(s => s.selectedTextModel)
   const updateFields = useCharacterStore(s => s.updateFields)
   const setGeneratedImage = useCharacterStore(s => s.setGeneratedImage)
   const addToast = useToastStore(s => s.addToast)
@@ -71,7 +72,9 @@ export default function ImageAnalysis() {
 
     try {
       const prompt = buildAnalysisPrompt()
-      const resultText = await analyzeImage(apiKey, uploadedBase64, prompt)
+      const resultText = await analyzeImage(apiKey, uploadedBase64, prompt, {
+        modelId: selectedTextModel,
+      })
 
       // Try to parse JSON from the result
       let parsed

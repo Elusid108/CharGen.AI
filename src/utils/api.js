@@ -1,15 +1,14 @@
 /**
- * API utilities for Gemini (text + vision) and Imagen (image generation)
+ * API utilities for Gemini (text + vision) and Imagen / Gemini image generation
  */
 
-const GEMINI_MODEL = 'gemini-2.5-flash-preview-09-2025'
-const IMAGEN_MODEL = 'imagen-4.0-generate-001'
+import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from './modelConstants'
 
 // --- Text Generation (Gemini) ---
 
 export async function generateText(apiKey, systemInstruction, userPrompt, options = {}) {
-  const { temperature = 1.0 } = options
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`
+  const { temperature = 1.0, modelId = DEFAULT_TEXT_MODEL } = options
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`
 
   const payload = {
     contents: [{ parts: [{ text: userPrompt }] }],
@@ -37,8 +36,9 @@ export async function generateText(apiKey, systemInstruction, userPrompt, option
 
 // --- Vision Analysis (Gemini) ---
 
-export async function analyzeImage(apiKey, base64Image, prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`
+export async function analyzeImage(apiKey, base64Image, prompt, options = {}) {
+  const { modelId = DEFAULT_TEXT_MODEL } = options
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`
 
   const payload = {
     contents: [{
@@ -73,11 +73,61 @@ export async function analyzeImage(apiKey, base64Image, prompt) {
   return text
 }
 
-// --- Image Generation (Imagen) ---
+function throwImageSafetyOrApiError(prefix, message) {
+  const errMsg = (message || '').toLowerCase()
+  if (errMsg.includes('safety') || errMsg.includes('blocked') || errMsg.includes('policy')) {
+    throw new Error('Content safety filter triggered. Try adjusting your character description.')
+  }
+  throw new Error(`${prefix}: ${message || 'Unknown error'}`)
+}
+
+function extractInlineImageBase64(data) {
+  const parts = data.candidates?.[0]?.content?.parts ?? []
+  for (const part of parts) {
+    const inline = part.inlineData || part.inline_data
+    const b64 = inline?.data
+    if (b64) return b64
+  }
+  throw new Error('No image data in model response (unexpected response shape).')
+}
+
+// --- Image Generation (Imagen predict or Gemini generateContent) ---
 
 export async function generateImage(apiKey, prompt, options = {}) {
-  const { aspectRatio = '1:1', negativePrompt = '' } = options
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${IMAGEN_MODEL}:predict?key=${apiKey}`
+  const {
+    aspectRatio = '1:1',
+    negativePrompt = '',
+    modelId = DEFAULT_IMAGE_MODEL,
+    imageEndpoint = 'predict',
+  } = options
+
+  if (imageEndpoint === 'generateContent') {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`
+
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        imageConfig: { aspectRatio },
+      },
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    const data = await response.json()
+
+    if (data.error) {
+      throwImageSafetyOrApiError('Gemini Image Error', data.error.message)
+    }
+
+    return extractInlineImageBase64(data)
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:predict?key=${apiKey}`
 
   const payload = {
     instances: [{ prompt }],
@@ -97,11 +147,7 @@ export async function generateImage(apiKey, prompt, options = {}) {
   const data = await response.json()
 
   if (data.error) {
-    const errMsg = data.error.message?.toLowerCase() || ''
-    if (errMsg.includes('safety') || errMsg.includes('blocked') || errMsg.includes('policy')) {
-      throw new Error('Content safety filter triggered. Try adjusting your character description.')
-    }
-    throw new Error(`Imagen Error: ${data.error.message}`)
+    throwImageSafetyOrApiError('Imagen Error', data.error.message)
   }
 
   if (!data.predictions?.[0]?.bytesBase64Encoded) {
@@ -114,7 +160,7 @@ export async function generateImage(apiKey, prompt, options = {}) {
 // --- Backstory Generation ---
 
 export async function generateBackstory(apiKey, character, options = {}) {
-  const { length = 'Standard Bio', tone = 'Simple', genre = 'High Fantasy' } = options
+  const { length = 'Standard Bio', tone = 'Simple', genre = 'High Fantasy', modelId } = options
 
   const charSummary = Object.entries(character)
     .filter(([_, v]) => v !== '' && v !== null && v !== undefined)
@@ -138,7 +184,7 @@ Instructions:
 4. Weave their fears, goals, and personality traits naturally into the narrative.
 5. Make it feel like the opening chapter of their story.`
 
-  return generateText(apiKey, systemInstruction, userPrompt, { temperature: 1.1 })
+  return generateText(apiKey, systemInstruction, userPrompt, { temperature: 1.1, ...(modelId ? { modelId } : {}) })
 }
 
 // --- Prompt Helper: Translate numeric stats to visual descriptions ---

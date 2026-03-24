@@ -1,21 +1,34 @@
 import React, { useState } from 'react'
-import { X, Key, HardDrive, ExternalLink } from 'lucide-react'
+import { X, Key, HardDrive, ExternalLink, RefreshCw } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { getStorageEstimate } from '../../utils/db'
 import { formatBytes } from '../../utils/imageUtils'
+import { modelIdFromApiName } from '../../utils/models'
 
 export default function SettingsPanel({ onClose }) {
   const apiKey = useCharacterStore(s => s.apiKey)
   const setApiKey = useCharacterStore(s => s.setApiKey)
+  const availableTextModels = useCharacterStore(s => s.availableTextModels)
+  const availableImageModels = useCharacterStore(s => s.availableImageModels)
+  const selectedTextModel = useCharacterStore(s => s.selectedTextModel)
+  const selectedImageModel = useCharacterStore(s => s.selectedImageModel)
+  const setSelectedTextModel = useCharacterStore(s => s.setSelectedTextModel)
+  const setSelectedImageModel = useCharacterStore(s => s.setSelectedImageModel)
+  const refreshModels = useCharacterStore(s => s.refreshModels)
   const addToast = useToastStore(s => s.addToast)
 
   const [keyInput, setKeyInput] = useState(apiKey || '')
   const [storage, setStorage] = useState(null)
+  const [isRefreshingModels, setIsRefreshingModels] = useState(false)
 
   React.useEffect(() => {
     getStorageEstimate().then(setStorage)
   }, [])
+
+  React.useEffect(() => {
+    setKeyInput(apiKey || '')
+  }, [apiKey])
 
   const handleSaveKey = () => {
     if (!keyInput.trim()) {
@@ -24,6 +37,24 @@ export default function SettingsPanel({ onClose }) {
     }
     setApiKey(keyInput.trim())
     addToast('API key saved!', 'success')
+  }
+
+  const keyForModelFetch = keyInput.trim() || apiKey
+
+  const handleRefreshModels = async () => {
+    if (!keyForModelFetch) {
+      addToast('Enter or save an API key first', 'warning')
+      return
+    }
+    setIsRefreshingModels(true)
+    try {
+      await refreshModels(keyForModelFetch)
+      addToast('Model list updated', 'success')
+    } catch (e) {
+      addToast(e?.message || 'Failed to refresh models', 'error')
+    } finally {
+      setIsRefreshingModels(false)
+    }
   }
 
   return (
@@ -77,6 +108,62 @@ export default function SettingsPanel({ onClose }) {
             Get a free API key from Google AI Studio
             <ExternalLink size={10} />
           </a>
+
+          {keyForModelFetch && (
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
+              <span className="text-xs text-slate-400">
+                {availableTextModels.length > 0 || availableImageModels.length > 0
+                  ? `${availableTextModels.length} text, ${availableImageModels.length} image models`
+                  : 'No models loaded — refresh to scan your account'}
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleRefreshModels()}
+                disabled={isRefreshingModels}
+                className="text-xs px-3 py-2 bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 rounded-md transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-50 border border-blue-500/30"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isRefreshingModels ? 'animate-spin' : ''}`} />
+                {isRefreshingModels ? 'Scanning…' : 'Refresh List'}
+              </button>
+            </div>
+          )}
+
+          {availableTextModels.length > 0 && (
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">
+                Text generation model
+              </label>
+              <select
+                value={selectedTextModel}
+                onChange={(e) => void setSelectedTextModel(e.target.value)}
+                className="input-field w-full"
+              >
+                {availableTextModels.map((model) => (
+                  <option key={model.name} value={modelIdFromApiName(model.name)}>
+                    {model.displayName || model.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {availableImageModels.length > 0 && (
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">
+                Image generation model
+              </label>
+              <select
+                value={selectedImageModel}
+                onChange={(e) => void setSelectedImageModel(e.target.value)}
+                className="input-field w-full"
+              >
+                {availableImageModels.map((model) => (
+                  <option key={model.name} value={modelIdFromApiName(model.name)}>
+                    {model.displayName || model.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Storage Info */}

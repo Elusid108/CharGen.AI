@@ -6,6 +6,8 @@ import {
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { generateImage as callGenerateImage, buildImagePrompt, generateBackstory as callGenerateBackstory } from '../../utils/api'
+import { getImageEndpointForModel } from '../../utils/models'
+import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
 import { ART_STYLES, LIGHTING_OPTIONS, MOOD_OPTIONS } from '../../data/schemas'
 import { downloadImage, base64ToDataUrl } from '../../utils/imageUtils'
 
@@ -35,6 +37,9 @@ const STORY_TONES = [
 export default function GenerationPanel() {
   const character = useCharacterStore(s => s.character)
   const apiKey = useCharacterStore(s => s.apiKey)
+  const selectedTextModel = useCharacterStore(s => s.selectedTextModel)
+  const selectedImageModel = useCharacterStore(s => s.selectedImageModel)
+  const availableImageModels = useCharacterStore(s => s.availableImageModels)
   const generatedImages = useCharacterStore(s => s.generatedImages)
   const setGeneratedImage = useCharacterStore(s => s.setGeneratedImage)
   const backstory = useCharacterStore(s => s.backstory)
@@ -57,6 +62,15 @@ export default function GenerationPanel() {
 
   const isAnyGenerating = generatingTypes.size > 0
 
+  const imageModelOptions = (extra = {}) => ({
+    modelId: selectedImageModel || DEFAULT_IMAGE_MODEL,
+    imageEndpoint:
+      availableImageModels.length > 0
+        ? getImageEndpointForModel(availableImageModels, selectedImageModel)
+        : 'predict',
+    ...extra,
+  })
+
   const handleGenerateImage = async (imageType) => {
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
@@ -70,10 +84,10 @@ export default function GenerationPanel() {
         artStyle, lighting, mood,
       })
 
-      const base64 = await callGenerateImage(apiKey, prompt, {
+      const base64 = await callGenerateImage(apiKey, prompt, imageModelOptions({
         aspectRatio: typeConfig.ratio,
         negativePrompt,
-      })
+      }))
 
       setGeneratedImage(imageType, base64)
       addToast(`${typeConfig.label} generated successfully!`, 'success')
@@ -111,6 +125,7 @@ export default function GenerationPanel() {
         length: storyLength,
         tone: storyTone,
         genre: storyGenre,
+        modelId: selectedTextModel,
       })
       setBackstory(text)
       addToast('Backstory generated!', 'success')

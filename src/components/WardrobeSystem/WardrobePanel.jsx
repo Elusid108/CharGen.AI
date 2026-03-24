@@ -5,6 +5,8 @@ import {
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { generateImage as callGenerateImage, buildImagePrompt } from '../../utils/api'
+import { getImageEndpointForModel } from '../../utils/models'
+import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
 import { ART_STYLES, LIGHTING_OPTIONS } from '../../data/schemas'
 import { downloadImage, base64ToDataUrl, generateId } from '../../utils/imageUtils'
 
@@ -20,6 +22,8 @@ const STYLE_TAGS = ['Casual', 'Formal', 'Combat', 'Fantasy', 'Cyberpunk', 'Fetis
 export default function WardrobePanel() {
   const character = useCharacterStore(s => s.character)
   const apiKey = useCharacterStore(s => s.apiKey)
+  const selectedImageModel = useCharacterStore(s => s.selectedImageModel)
+  const availableImageModels = useCharacterStore(s => s.availableImageModels)
   const wardrobe = useCharacterStore(s => s.wardrobe)
   const addOutfit = useCharacterStore(s => s.addOutfit)
   const updateOutfit = useCharacterStore(s => s.updateOutfit)
@@ -82,6 +86,11 @@ export default function WardrobePanel() {
 
       const base64 = await callGenerateImage(apiKey, prompt, {
         aspectRatio: '3:4',
+        modelId: selectedImageModel || DEFAULT_IMAGE_MODEL,
+        imageEndpoint:
+          availableImageModels.length > 0
+            ? getImageEndpointForModel(availableImageModels, selectedImageModel)
+            : 'predict',
       })
 
       updateOutfit(outfit.id, { image: base64 })

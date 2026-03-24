@@ -3,6 +3,8 @@ import { getDefaultCharacter, CHARACTER_SECTIONS } from '../data/schemas'
 import { randomFrom, randomRange, randomName, randomGoals, randomFears, randomDesires, randomTrauma, randomQuirks, randomMoralCodes, randomPrejudices } from '../data/randomPools'
 import { generateId } from '../utils/imageUtils'
 import { getSetting, saveSetting } from '../utils/db'
+import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
+import { fetchGeminiModels } from '../utils/models'
 
 export const useCharacterStore = create((set, get) => ({
   // Character data
@@ -22,11 +24,24 @@ export const useCharacterStore = create((set, get) => ({
   // API Key
   apiKey: '',
 
-  // Initialize - load API key from IndexedDB
+  availableTextModels: [],
+  availableImageModels: [],
+  selectedTextModel: DEFAULT_TEXT_MODEL,
+  selectedImageModel: DEFAULT_IMAGE_MODEL,
+
+  // Initialize - load API key and model prefs from IndexedDB
   initialize: async () => {
     try {
-      const key = await getSetting('apiKey')
-      if (key) set({ apiKey: key })
+      const [key, textModel, imageModel] = await Promise.all([
+        getSetting('apiKey'),
+        getSetting('selectedTextModel'),
+        getSetting('selectedImageModel'),
+      ])
+      const updates = {}
+      if (key) updates.apiKey = key
+      if (textModel) updates.selectedTextModel = textModel
+      if (imageModel) updates.selectedImageModel = imageModel
+      if (Object.keys(updates).length) set(updates)
     } catch (e) {
       console.error('Failed to load settings:', e)
     }
@@ -39,6 +54,44 @@ export const useCharacterStore = create((set, get) => ({
       await saveSetting('apiKey', key)
     } catch (e) {
       console.error('Failed to save API key:', e)
+    }
+  },
+
+  setSelectedTextModel: async (model) => {
+    set({ selectedTextModel: model })
+    try {
+      await saveSetting('selectedTextModel', model)
+    } catch (e) {
+      console.error('Failed to save text model:', e)
+    }
+  },
+
+  setSelectedImageModel: async (model) => {
+    set({ selectedImageModel: model })
+    try {
+      await saveSetting('selectedImageModel', model)
+    } catch (e) {
+      console.error('Failed to save image model:', e)
+    }
+  },
+
+  refreshModels: async (key) => {
+    const trimmed = key?.trim()
+    if (!trimmed) return
+    const { selectedTextModel, selectedImageModel } = get()
+    const result = await fetchGeminiModels(trimmed, { selectedTextModel, selectedImageModel })
+    if (!result) return
+    set({
+      availableTextModels: result.availableTextModels,
+      availableImageModels: result.availableImageModels,
+      selectedTextModel: result.selectedTextModel,
+      selectedImageModel: result.selectedImageModel,
+    })
+    try {
+      await saveSetting('selectedTextModel', result.selectedTextModel)
+      await saveSetting('selectedImageModel', result.selectedImageModel)
+    } catch (e) {
+      console.error('Failed to save model selection:', e)
     }
   },
 
