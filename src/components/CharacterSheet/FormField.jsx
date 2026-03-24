@@ -1,17 +1,35 @@
 import React from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Lock, Unlock } from 'lucide-react'
+import { useCharacterStore } from '../../hooks/useCharacter'
 
 export default function FormField({ field, value, onChange, onHover }) {
   const isWide = field.type === 'range'
+  const locked = useCharacterStore((s) => !!s.lockedFields[field.id])
+  const toggleLock = useCharacterStore((s) => s.toggleLock)
 
   return (
     <div
       className={isWide ? 'col-span-1 md:col-span-2' : 'col-span-1'}
       onMouseEnter={onHover}
     >
-      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-        {field.label}
-      </label>
+      <div className="flex items-center gap-2 mb-2">
+        <button
+          type="button"
+          onClick={() => toggleLock(field.id)}
+          aria-pressed={locked}
+          aria-label={locked ? `Unlock ${field.label}` : `Lock ${field.label}`}
+          className="shrink-0 p-1 rounded-md hover:bg-slate-800/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+        >
+          {locked ? (
+            <Lock size={14} className="text-amber-400" strokeWidth={2.25} />
+          ) : (
+            <Unlock size={14} className="text-slate-500" strokeWidth={2} />
+          )}
+        </button>
+        <span className="block text-xs font-bold text-slate-500 uppercase tracking-wider flex-1 min-w-0">
+          {field.label}
+        </span>
+      </div>
 
       {field.type === 'select' && (
         <SelectField field={field} value={value} onChange={onChange} />

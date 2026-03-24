@@ -1,4 +1,15 @@
-const EXCLUDE_PATTERNS = ['embedding', 'aqa', 'answer', 'vision', 'image']
+/** Substrings in API name or displayName that disqualify a model from the text-only list. */
+const TEXT_MODEL_EXCLUDE_PATTERNS = [
+  'embedding',
+  'aqa',
+  'answer',
+  'vision',
+  'image',
+  'tts',
+  'robotics',
+  'custom',
+  'audio',
+]
 
 /** @param {string} name */
 export function modelIdFromApiName(name) {
@@ -87,9 +98,12 @@ export async function fetchGeminiModels(apiKey, current) {
 
       const hasGenerateContent = methods.some((m) => String(m).toLowerCase() === 'generatecontent')
 
-      const excluded = EXCLUDE_PATTERNS.some((p) => nameLower.includes(p))
+      const textSearchHaystack = `${nameLower} ${displayNameLower}`
+      const excludedFromText = TEXT_MODEL_EXCLUDE_PATTERNS.some((p) =>
+        textSearchHaystack.includes(p)
+      )
 
-      if (hasGenerateContent && !excluded) {
+      if (hasGenerateContent && !excludedFromText) {
         textModels.push({ name, displayName })
       }
 

@@ -4,7 +4,13 @@ import {
   MessagesSquare, Flame, Sparkles, Upload, Shirt, BookMarked,
   Settings, Dice5, Save, ChevronLeft, Dna
 } from 'lucide-react'
+import packageJson from '../../../package.json'
 import { CHARACTER_SECTIONS } from '../../data/schemas'
+
+const APP_VERSION =
+  typeof packageJson?.version === 'string' && packageJson.version.trim()
+    ? packageJson.version.trim()
+    : '1.0.0'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { saveCharacter } from '../../utils/db'
@@ -60,6 +66,7 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
           </button>
         </div>
         <p className="text-xs text-slate-500 mt-1">Universal Character Engine</p>
+        <p className="text-[10px] text-slate-600 font-mono tabular-nums mt-0.5">v{APP_VERSION}</p>
       </div>
 
       {/* Navigation */}

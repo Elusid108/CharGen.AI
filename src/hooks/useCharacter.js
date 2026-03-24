@@ -29,6 +29,17 @@ export const useCharacterStore = create((set, get) => ({
   selectedTextModel: DEFAULT_TEXT_MODEL,
   selectedImageModel: DEFAULT_IMAGE_MODEL,
 
+  /** @type {Record<string, true>} field ids that stay fixed on randomize */
+  lockedFields: {},
+
+  toggleLock: (fieldId) =>
+    set((state) => {
+      const next = { ...state.lockedFields }
+      if (next[fieldId]) delete next[fieldId]
+      else next[fieldId] = true
+      return { lockedFields: next }
+    }),
+
   // Initialize - load API key and model prefs from IndexedDB
   initialize: async () => {
     try {
@@ -147,6 +158,7 @@ export const useCharacterStore = create((set, get) => ({
 
     section.fields.forEach(field => {
       if (field.conditional) return // Skip conditional fields
+      if (get().lockedFields[field.id]) return
 
       switch (field.type) {
         case 'select':
@@ -179,48 +191,58 @@ export const useCharacterStore = create((set, get) => ({
 
   // Randomize ALL sections
   randomizeAll: () => {
-    const allUpdates = {}
+    const { lockedFields, character } = get()
+    const nextCharacter = { ...getDefaultCharacter() }
+
+    Object.keys(lockedFields).forEach((id) => {
+      if (lockedFields[id]) nextCharacter[id] = character[id]
+    })
 
     Object.keys(CHARACTER_SECTIONS).forEach(sectionKey => {
       const section = CHARACTER_SECTIONS[sectionKey]
       section.fields.forEach(field => {
         if (field.conditional) return
+        if (lockedFields[field.id]) return
 
         switch (field.type) {
           case 'select':
-            allUpdates[field.id] = randomFrom(field.options)
+            nextCharacter[field.id] = randomFrom(field.options)
             break
           case 'range':
-            allUpdates[field.id] = randomRange(field.min ?? 0, field.max ?? 100)
+            nextCharacter[field.id] = randomRange(field.min ?? 0, field.max ?? 100)
             break
           case 'number':
-            if (field.id === 'age') allUpdates[field.id] = randomRange(18, 80)
+            if (field.id === 'age') nextCharacter[field.id] = randomRange(18, 80)
             break
           case 'text':
-            if (field.id === 'name') allUpdates[field.id] = randomName()
-            else if (field.id === 'goal') allUpdates[field.id] = randomFrom(randomGoals)
-            else if (field.id === 'fear') allUpdates[field.id] = randomFrom(randomFears)
-            else if (field.id === 'desire') allUpdates[field.id] = randomFrom(randomDesires)
-            else if (field.id === 'trauma') allUpdates[field.id] = randomFrom(randomTrauma)
-            else if (field.id === 'quirk') allUpdates[field.id] = randomFrom(randomQuirks)
-            else if (field.id === 'moral_code') allUpdates[field.id] = randomFrom(randomMoralCodes)
-            else if (field.id === 'prejudice') allUpdates[field.id] = randomFrom(randomPrejudices)
+            if (field.id === 'name') nextCharacter[field.id] = randomName()
+            else if (field.id === 'goal') nextCharacter[field.id] = randomFrom(randomGoals)
+            else if (field.id === 'fear') nextCharacter[field.id] = randomFrom(randomFears)
+            else if (field.id === 'desire') nextCharacter[field.id] = randomFrom(randomDesires)
+            else if (field.id === 'trauma') nextCharacter[field.id] = randomFrom(randomTrauma)
+            else if (field.id === 'quirk') nextCharacter[field.id] = randomFrom(randomQuirks)
+            else if (field.id === 'moral_code') nextCharacter[field.id] = randomFrom(randomMoralCodes)
+            else if (field.id === 'prejudice') nextCharacter[field.id] = randomFrom(randomPrejudices)
             break
         }
       })
     })
 
-    set({ character: { ...getDefaultCharacter(), ...allUpdates } })
+    set({ character: nextCharacter })
   },
 
   // Load a saved character
   loadCharacter: (saved) => {
+    const lf = saved.lockedFields
+    const lockedFields =
+      lf && typeof lf === 'object' && !Array.isArray(lf) ? { ...lf } : {}
     set({
       characterId: saved.id,
       character: saved.attributes || getDefaultCharacter(),
       generatedImages: saved.generatedImages || { profile: null, fullbody: null, tpose: null, mannequin: null },
       backstory: saved.backstory || '',
       wardrobe: saved.wardrobe || [],
+      lockedFields,
     })
   },
 
@@ -239,7 +261,8 @@ export const useCharacterStore = create((set, get) => ({
         tags: [],
         favorite: false,
         lastModified: Date.now(),
-      }
+      },
+      lockedFields: { ...state.lockedFields },
     }
   },
 
@@ -251,6 +274,7 @@ export const useCharacterStore = create((set, get) => ({
       generatedImages: { profile: null, fullbody: null, tpose: null, mannequin: null },
       backstory: '',
       wardrobe: [],
+      lockedFields: {},
     })
   },
 }))
