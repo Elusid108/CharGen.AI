@@ -1,11 +1,11 @@
 import { create } from 'zustand'
-import { getDefaultCharacter, CHARACTER_SECTIONS, getAllFieldIds } from '../data/schemas'
+import { getDefaultCharacter, CHARACTER_SECTIONS } from '../data/schemas'
 import { randomFrom, randomRange, randomName } from '../data/randomPools'
 import { generateId } from '../utils/imageUtils'
 import { getSetting, saveSetting } from '../utils/db'
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
 import { fetchGeminiModels } from '../utils/models'
-import { generateCharacterProfile } from '../utils/api'
+import { generateCustomFields } from '../utils/api'
 import { useToastStore } from './useToast'
 
 function buildFieldById() {
@@ -21,10 +21,7 @@ function buildFieldById() {
 const FIELD_BY_ID = buildFieldById()
 
 function randomSelectValue(field) {
-  const opts = field.options.includes('Custom')
-    ? field.options.filter((o) => o !== 'Custom')
-    : field.options
-  return randomFrom(opts)
+  return randomFrom(field.options)
 }
 
 function pickLockedFromCharacter(character, lockedFields) {
@@ -35,8 +32,12 @@ function pickLockedFromCharacter(character, lockedFields) {
   return out
 }
 
-/** Random value for one schema field; returns undefined if this field is not auto-randomized. */
-function randomValueForField(field) {
+/**
+ * Random value for one schema field; returns undefined if this field is not auto-randomized.
+ * @param {{ skipLocalTextForLlm?: boolean }} [opts] — when true, leave `name` empty for hybrid LLM fill
+ */
+function randomValueForField(field, opts = {}) {
+  const { skipLocalTextForLlm = false } = opts
   switch (field.type) {
     case 'select':
       return randomSelectValue(field)
@@ -51,7 +52,10 @@ function randomValueForField(field) {
       }
       return undefined
     case 'text':
-      if (field.id === 'name') return randomName()
+      if (field.id === 'name') {
+        if (skipLocalTextForLlm) return undefined
+        return randomName()
+      }
       return undefined
     default:
       return undefined
@@ -65,7 +69,8 @@ function fieldSkippedForRandomize(field, lockedFields) {
 }
 
 /** Pool-based full randomize; respects lockedFields by copying values from `character`. */
-function buildLocalRandomizedCharacter(lockedFields, character) {
+function buildLocalRandomizedCharacter(lockedFields, character, options = {}) {
+  const { skipLocalTextForLlm = false } = options
   const nextCharacter = { ...getDefaultCharacter() }
 
   Object.keys(lockedFields).forEach((id) => {
@@ -75,7 +80,7 @@ function buildLocalRandomizedCharacter(lockedFields, character) {
   Object.entries(CHARACTER_SECTIONS).forEach(([_sectionId, section]) => {
     section.fields.forEach((field) => {
       if (fieldSkippedForRandomize(field, lockedFields)) return
-      const val = randomValueForField(field)
+      const val = randomValueForField(field, { skipLocalTextForLlm })
       if (val !== undefined) nextCharacter[field.id] = val
     })
   })
@@ -83,44 +88,85 @@ function buildLocalRandomizedCharacter(lockedFields, character) {
   return nextCharacter
 }
 
-function sanitizeLlmCharacter(parsed) {
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Invalid character payload')
+/** Merge section updates and clear `*_custom` when a rolled select is no longer Custom. */
+function mergeCharacterWithSelectCleanup(prev, updates) {
+  const merged = { ...prev, ...updates }
+  for (const [id, val] of Object.entries(updates)) {
+    const f = FIELD_BY_ID[id]
+    if (f?.type !== 'select' || val === 'Custom') continue
+    const cid = `${id}_custom`
+    if (FIELD_BY_ID[cid]) merged[cid] = ''
   }
-  const defaults = getDefaultCharacter()
-  const out = { ...defaults }
-  const allowed = getAllFieldIds()
+  return merged
+}
 
-  for (const id of allowed) {
-    if (!Object.prototype.hasOwnProperty.call(parsed, id)) continue
-    const field = FIELD_BY_ID[id]
-    if (!field) continue
-    const v = parsed[id]
+/** After a full local build, drop orphan `*_custom` strings when the parent select is not Custom. */
+function clearStaleCustomTexts(merged) {
+  const out = { ...merged }
+  Object.values(CHARACTER_SECTIONS).forEach((section) => {
+    section.fields.forEach((field) => {
+      if (field.type !== 'select') return
+      const customId = `${field.id}_custom`
+      if (!FIELD_BY_ID[customId]) return
+      if (out[field.id] !== 'Custom') out[customId] = ''
+    })
+  })
+  return out
+}
 
-    if (field.type === 'range') {
-      const n = Number(v)
-      out[id] = Number.isFinite(n)
-        ? Math.min(field.max ?? 100, Math.max(field.min ?? 0, Math.round(n)))
-        : defaults[id]
-    } else if (field.type === 'number') {
-      const n = parseInt(v, 10)
-      if (!Number.isFinite(n)) {
-        out[id] = defaults[id]
-      } else if (id === 'age') {
-        out[id] = Math.min(80, Math.max(18, n))
+function textFieldVisibleForMerged(merged, field) {
+  if (!field.conditional) return true
+  return merged[field.conditional.field] === field.conditional.value
+}
+
+/**
+ * @param {Record<string, unknown>} mergedCharacter
+ * @param {Record<string, true>} lockedFields
+ * @param {{ mode: 'all' | 'section', sectionKey?: string, rolledFieldIds?: string[] }} context
+ */
+function collectLlmTextFieldIds(mergedCharacter, lockedFields, context) {
+  const { mode, sectionKey, rolledFieldIds } = context
+  const rolledSet = rolledFieldIds ? new Set(rolledFieldIds) : null
+  const targets = []
+
+  for (const [secKey, section] of Object.entries(CHARACTER_SECTIONS)) {
+    if (mode === 'section' && secKey !== sectionKey) continue
+    for (const field of section.fields) {
+      if (field.type !== 'text') continue
+      if (lockedFields[field.id]) continue
+      if (!textFieldVisibleForMerged(mergedCharacter, field)) continue
+
+      if (mode === 'all') {
+        if (field.conditional) {
+          if (mergedCharacter[field.conditional.field] === 'Custom') targets.push(field.id)
+        } else {
+          targets.push(field.id)
+        }
       } else {
-        const lo = field.min ?? 0
-        const hi = field.max ?? 9999
-        out[id] = Math.min(hi, Math.max(lo, n))
+        const parentId = field.conditional?.field
+        if (field.conditional) {
+          if (mergedCharacter[parentId] !== 'Custom') continue
+          if (!rolledSet.has(parentId)) continue
+          targets.push(field.id)
+        } else {
+          if (!rolledSet.has(field.id)) continue
+          targets.push(field.id)
+        }
       }
-    } else if (field.type === 'select') {
-      const s = String(v)
-      out[id] = field.options.includes(s) ? s : defaults[id]
-    } else {
-      out[id] = v === null || v === undefined ? '' : String(v)
     }
   }
 
+  return [...new Set(targets)]
+}
+
+function mergeLlmTextPatch(baseCharacter, patch, allowedIds) {
+  const out = { ...baseCharacter }
+  const allow = new Set(allowedIds)
+  for (const id of allow) {
+    if (!Object.prototype.hasOwnProperty.call(patch, id)) continue
+    const v = patch[id]
+    out[id] = v === null || v === undefined ? '' : String(v)
+  }
   return out
 }
 
@@ -253,7 +299,14 @@ export const useCharacterStore = create((set, get) => ({
   // Wardrobe management
   addOutfit: (outfit) => {
     set(state => ({
-      wardrobe: [...state.wardrobe, { ...outfit, id: generateId(), timestamp: Date.now() }]
+      wardrobe: [
+        ...state.wardrobe,
+        {
+          ...outfit,
+          id: outfit.id || generateId(),
+          timestamp: outfit.timestamp ?? Date.now(),
+        },
+      ],
     }))
   },
 
@@ -269,76 +322,122 @@ export const useCharacterStore = create((set, get) => ({
     }))
   },
 
-  // Randomize a section
-  randomizeSection: (sectionKey) => {
+  /**
+   * Randomize one section: local dice first, then targeted LLM for name / Custom follow-ups when an API key is set.
+   * @returns {Promise<{ source: 'llm' | 'local', reason?: string }>}
+   */
+  randomizeSection: async (sectionKey) => {
     const section = CHARACTER_SECTIONS[sectionKey]
-    if (!section) return
+    if (!section) return { source: 'local' }
+
+    const { lockedFields: lf, character, apiKey, selectedTextModel } = get()
+    const hasKey = !!apiKey?.trim()
+    const toast = useToastStore.getState().addToast
 
     const updates = {}
-
-    const lf = get().lockedFields
     section.fields.forEach((field) => {
       if (fieldSkippedForRandomize(field, lf)) return
-      const val = randomValueForField(field)
+      const val = randomValueForField(field, { skipLocalTextForLlm: hasKey })
       if (val !== undefined) updates[field.id] = val
+      else if (hasKey && field.type === 'text' && field.id === 'name') {
+        updates.name = ''
+      }
     })
 
-    set(state => ({
-      character: { ...state.character, ...updates }
-    }))
+    const merged = mergeCharacterWithSelectCleanup(character, updates)
+    const rolledFieldIds = Object.keys(updates)
+
+    const targets = collectLlmTextFieldIds(merged, lf, {
+      mode: 'section',
+      sectionKey,
+      rolledFieldIds,
+    })
+
+    if (!hasKey || targets.length === 0) {
+      set({ character: merged })
+      return { source: 'local' }
+    }
+
+    set({ isGenerating: true })
+    try {
+      let patch
+      try {
+        patch = await generateCustomFields(
+          CHARACTER_SECTIONS,
+          selectedTextModel,
+          apiKey.trim(),
+          merged,
+          targets
+        )
+      } catch (e) {
+        console.error('generateCustomFields failed:', e)
+        toast(
+          `AI randomization failed (${e instanceof Error ? e.message : 'unknown error'}). Custom text fields left blank.`,
+          'error'
+        )
+        set({ character: merged })
+        return { source: 'local', reason: 'api_error' }
+      }
+
+      const filled = mergeLlmTextPatch(merged, patch, targets)
+      set({ character: filled })
+      return { source: 'llm' }
+    } finally {
+      set({ isGenerating: false })
+    }
   },
 
   /**
-   * Randomize all sections via Gemini when an API key is set; otherwise local pools.
-   * On API/JSON failure, falls back to local randomization and shows an error toast.
+   * Randomize all sections: local dice first (including Custom), then targeted LLM for text / *_custom when an API key is set.
+   * On API failure, keeps the local dice result and shows an error toast.
    * @returns {Promise<{ source: 'llm' | 'local', reason?: string }>}
    */
   randomizeAll: async () => {
     const { lockedFields, character, apiKey, selectedTextModel } = get()
     const toast = useToastStore.getState().addToast
+    const hasKey = !!apiKey?.trim()
+    const lockedSlice = pickLockedFromCharacter(character, lockedFields)
 
-    const applyLocal = (reason) => {
-      const next = buildLocalRandomizedCharacter(lockedFields, character)
+    let next = buildLocalRandomizedCharacter(lockedFields, character, {
+      skipLocalTextForLlm: hasKey,
+    })
+    next = clearStaleCustomTexts(next)
+
+    if (!hasKey) {
       set({ character: next })
-      return reason ? { source: 'local', reason } : { source: 'local' }
+      toast('Add an API key in Settings to use AI randomization.', 'info')
+      return { source: 'local', reason: 'no_api_key' }
     }
 
-    if (!apiKey?.trim()) {
-      const r = applyLocal('no_api_key')
-      toast('Add an API key in Settings to use AI randomization.', 'info')
-      return r
+    const targets = collectLlmTextFieldIds(next, lockedFields, { mode: 'all' })
+    if (targets.length === 0) {
+      set({ character: { ...next, ...lockedSlice } })
+      return { source: 'local' }
     }
 
     set({ isGenerating: true })
     try {
-      let parsed
+      let patch
       try {
-        parsed = await generateCharacterProfile(
+        patch = await generateCustomFields(
           CHARACTER_SECTIONS,
           selectedTextModel,
           apiKey.trim(),
-          character
+          next,
+          targets
         )
       } catch (e) {
-        console.error('generateCharacterProfile failed:', e)
+        console.error('generateCustomFields failed:', e)
         toast(
-          `AI randomization failed (${e instanceof Error ? e.message : 'unknown error'}). Used local random values.`,
+          `AI randomization failed (${e instanceof Error ? e.message : 'unknown error'}). Used local dice; custom text left blank.`,
           'error'
         )
-        return applyLocal('api_error')
+        set({ character: { ...next, ...lockedSlice } })
+        return { source: 'local', reason: 'api_error' }
       }
 
-      let sanitized
-      try {
-        sanitized = sanitizeLlmCharacter(parsed)
-      } catch (e) {
-        console.error('sanitizeLlmCharacter failed:', e)
-        toast('Invalid AI response. Used local random values.', 'error')
-        return applyLocal('parse_error')
-      }
-
-      const lockedSlice = pickLockedFromCharacter(character, lockedFields)
-      set({ character: { ...sanitized, ...lockedSlice } })
+      const filled = mergeLlmTextPatch(next, patch, targets)
+      set({ character: { ...filled, ...lockedSlice } })
       return { source: 'llm' }
     } finally {
       set({ isGenerating: false })

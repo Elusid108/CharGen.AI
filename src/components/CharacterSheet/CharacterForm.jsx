@@ -15,6 +15,7 @@ export default function CharacterForm({ section, onContextChange }) {
   const character = useCharacterStore(s => s.character)
   const updateField = useCharacterStore(s => s.updateField)
   const randomizeSection = useCharacterStore(s => s.randomizeSection)
+  const isGenerating = useCharacterStore(s => s.isGenerating)
 
   if (!sectionData) return null
 
@@ -76,8 +77,9 @@ export default function CharacterForm({ section, onContextChange }) {
         </div>
         <button
           type="button"
-          onClick={() => randomizeSection(section)}
-          className="btn-primary flex items-center gap-2 text-sm shrink-0 px-4 py-2"
+          disabled={isGenerating}
+          onClick={() => void randomizeSection(section)}
+          className="btn-primary flex items-center gap-2 text-sm shrink-0 px-4 py-2 disabled:opacity-50 disabled:pointer-events-none"
         >
           <Shuffle size={14} />
           Randomize

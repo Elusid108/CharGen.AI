@@ -10,7 +10,7 @@ import { CHARACTER_SECTIONS } from '../../data/schemas'
 const APP_VERSION =
   typeof packageJson?.version === 'string' && packageJson.version.trim()
     ? packageJson.version.trim()
-    : '1.5.0'
+    : '1.5.3'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { saveCharacter } from '../../utils/db'

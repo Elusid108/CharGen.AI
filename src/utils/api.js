@@ -115,22 +115,30 @@ Rules for the JSON:
  * @param {string} modelId
  * @param {string} apiKey
  * @param {Record<string, unknown>} currentCharacterState
+ * @param {{ freshRandomize?: boolean }} [options]
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function generateCharacterProfile(schema, modelId, apiKey, currentCharacterState) {
+export async function generateCharacterProfile(schema, modelId, apiKey, currentCharacterState, options = {}) {
   const fieldSpec = buildCharacterFieldSpecFromSchema(schema)
   const stateSummary = Object.entries(currentCharacterState || {})
     .filter(([_, v]) => v !== '' && v !== null && v !== undefined)
     .map(([k, v]) => `${k}: ${v}`)
     .join('\n')
 
+  const referenceBlock = options.freshRandomize
+    ? `User-LOCKED fields only (must match these values exactly in your JSON). There is no other prior character — treat this as a blank sheet except for these keys:
+${stateSummary || '(none — user locked nothing; every field is a fresh random pick)'}
+
+CRITICAL — No carryover: For every field NOT listed above, pick a value independently from that field's allowed options and constraints in the spec. Do not assume or repeat anatomy or body descriptors from any previous character (e.g. do not default to "Toned" or mirror old traits). Vary body-part and physique selects across the full option lists.`
+    : `Optional tone reference from the user's current sheet (you may ignore or diverge):
+${stateSummary || '(empty)'}`
+
   const userPrompt = `Generate one new random character. Return ONLY valid JSON (no markdown, no code fences).
 
 Field specification (each object describes one character attribute):
 ${JSON.stringify(fieldSpec)}
 
-Optional tone reference from the user's current sheet (you may ignore or diverge):
-${stateSummary || '(empty)'}
+${referenceBlock}
 
 Remember: every field id in the spec must be present in your JSON object with a valid value for its type and constraints.`
 
@@ -148,6 +156,88 @@ Remember: every field id in the spec must be present in your JSON object with a 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     throw new Error(`Failed to parse character JSON: ${msg}`)
+  }
+}
+
+function buildTextFieldSpecSubset(schema, fieldIds) {
+  const wanted = new Set(fieldIds)
+  const fields = []
+  for (const section of Object.values(schema)) {
+    for (const field of section.fields) {
+      if (field.type !== 'text' || !wanted.has(field.id)) continue
+      const entry = { id: field.id, type: 'text', label: field.label }
+      if (field.conditional) {
+        entry.onlyWhen = { field: field.conditional.field, equals: field.conditional.value }
+      }
+      fields.push(entry)
+    }
+  }
+  return fields
+}
+
+const CUSTOM_FIELDS_SYSTEM_PROMPT = `You are an expert character designer for fiction and games. You fill in specific text attributes for ONE character.
+
+You MUST output a single JSON object only. No markdown, no code fences, no commentary before or after the JSON.
+
+Rules:
+- Your JSON must contain ONLY the keys the user lists. Do not add, rename, or omit required keys.
+- Every value must be a non-empty creative string unless the field truly cannot apply (then use a minimal plausible string—avoid empty strings when the parent select is "Custom").
+- Use the full character state provided as authoritative context: stay consistent with species, sex, gender, age, origin, psychology, narrative picks, and every other rolled attribute.
+- Be specific and non-cliché; avoid generic placeholder phrases.`
+
+/**
+ * Ask Gemini to fill only the listed text / *_custom keys, using full character as context.
+ * @param {object} schema — same shape as CHARACTER_SECTIONS
+ * @param {string} modelId
+ * @param {string} apiKey
+ * @param {Record<string, unknown>} characterState — full sheet after local dice
+ * @param {string[]} fieldIds — ids to generate (subset of text fields)
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function generateCustomFields(schema, modelId, apiKey, characterState, fieldIds) {
+  const uniqueFieldIds = [...new Set(fieldIds || [])]
+  if (!uniqueFieldIds.length) {
+    throw new Error('generateCustomFields: fieldIds must be non-empty')
+  }
+
+  const fieldSpec = buildTextFieldSpecSubset(schema, uniqueFieldIds)
+  if (fieldSpec.length !== uniqueFieldIds.length) {
+    const got = new Set(fieldSpec.map((f) => f.id))
+    const missing = uniqueFieldIds.filter((id) => !got.has(id))
+    if (missing.length) {
+      throw new Error(`generateCustomFields: unknown or non-text field ids: ${missing.join(', ')}`)
+    }
+  }
+
+  const characterJson = JSON.stringify(characterState ?? {}, null, 2)
+  const keysList = uniqueFieldIds.map((id) => `"${id}"`).join(', ')
+
+  const userPrompt = `The character below was built with random dice rolls for selects, ranges, and numbers. Your job is to invent creative text ONLY for these keys: ${keysList}.
+
+Return ONLY valid JSON (no markdown, no code fences) with exactly those keys as top-level properties.
+
+Field details (text fields only):
+${JSON.stringify(fieldSpec)}
+
+Full current character (use as sole context—respect every attribute):
+${characterJson}
+
+Remember: output only the requested keys; each value must be a string.`
+
+  const raw = await generateText(apiKey, CUSTOM_FIELDS_SYSTEM_PROMPT, userPrompt, {
+    temperature: 0.95,
+    modelId,
+  })
+
+  try {
+    const parsed = parseJsonFromModelText(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Parsed JSON is not an object')
+    }
+    return parsed
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    throw new Error(`Failed to parse custom-fields JSON: ${msg}`)
   }
 }
 
@@ -336,6 +426,14 @@ function describeSkinGlisten(val) {
   return 'skin drenched in sweat, heavily glistening and reflecting light'
 }
 
+function describeSkinTone(tone, origin) {
+  const o = String(origin ?? '').toLowerCase()
+  if (tone === 'Pale' && o.includes('deep sea')) {
+    return 'vitreous, waxy, sun-deprived pale skin, lacking melanin'
+  }
+  return tone
+}
+
 /** Resolve select + optional *_custom (when value is "Custom"). */
 function selectDisplay(c, id) {
   const v = c[id]
@@ -397,10 +495,22 @@ export function buildDetailedPhysicalPrompt(characterState, options = {}) {
   CHARACTER_SECTIONS.physical.fields.forEach((field) => {
     if (field.conditional) return
     if (field.type === 'select') {
-      const t = selectDisplay(c, field.id)
+      let t = selectDisplay(c, field.id)
       if (!t) return
+      if (field.id === 'skin_tone') {
+        t = describeSkinTone(t, selectDisplay(c, 'origin'))
+      }
       if (field.id === 'body_hair' && t === 'N/A (Non-Human)') return
-      parts.push(`${field.label}: ${t}.`)
+      let line = `${field.label}: ${t}.`
+      if (field.id === 'scars' && t.toLowerCase().includes('implosion')) {
+        line +=
+          ' Render as raised, keloid, or indented skin texture rather than mere discoloration.'
+      }
+      if (field.id === 'special_features' && t.toLowerCase().includes('sub-dermal')) {
+        line +=
+          ' Render as surgically embedded into the anatomy with skin tension and biomechanical texture.'
+      }
+      parts.push(line)
     } else if (field.type === 'range') {
       if (field.id === 'muscle_def') {
         const d = describeMuscleDef(c.muscle_def)
@@ -422,6 +532,12 @@ export function buildDetailedPhysicalPrompt(characterState, options = {}) {
       parts.push(
         'CRITICAL: All visible garments must correspond to the clothing described above—do not substitute a different outfit.'
       )
+      const originDisplay = selectDisplay(c, 'origin')
+      if (originDisplay) {
+        parts.push(
+          `Materials, weathering, and design of the clothing and gear must heavily reflect this character's origin (${originDisplay}).`
+        )
+      }
     }
   }
 
@@ -444,9 +560,17 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
     case 'profile':
       parts.push('Framing: Head and shoulders portrait, 1:1 square aspect ratio. Solid dark background.')
       break
-    case 'fullbody':
-      parts.push('Framing: Full body shot, natural relaxed confident pose. Solid dark background.')
+    case 'fullbody': {
+      const gait = character.gait ? String(character.gait).trim() : ''
+      if (gait) {
+        parts.push(
+          `Framing: Full body shot, standing with a ${gait.toLowerCase()} posture and gait. Solid dark background.`
+        )
+      } else {
+        parts.push('Framing: Full body shot, natural relaxed confident pose. Solid dark background.')
+      }
       break
+    }
     case 'tpose':
       parts.push(
         'Framing: A professional character model reference sheet. ' +
@@ -494,7 +618,9 @@ Write flowing narrative prose only—never output a stat block, bullet list of a
 
 Prioritize internal psychology, narrative history, goals, fears, trauma, relationships, and voice/movement when they appear in the JSON. Reference demographic and species context where it shapes the story. Use fine-grained body-part slider details only when they clearly matter to appearance, scars, or story logic (otherwise imply broad look through higher-level traits).
 
-Every major psychological and narrative field provided should influence the backstory in a coherent, consistent way.`
+Every major psychological and narrative field provided should influence the backstory in a coherent, consistent way.
+
+CRITICAL: Never explicitly name the psychological frameworks, alignments, or mechanical trait labels in the prose (e.g., NEVER write the words "INTJ", "Enneagram", "Demisexual", or "Lawful Neutral"). Instead, demonstrate these traits purely through the character's actions, worldview, and reactions to their environment.`
 
   const userPrompt = `Write a creative character backstory.
 

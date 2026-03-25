@@ -7,7 +7,7 @@ import { useToastStore } from '../../hooks/useToast'
 import { generateImage as callGenerateImage, buildImagePrompt } from '../../utils/api'
 import { getImageEndpointForModel } from '../../utils/models'
 import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
-import { downloadImage, base64ToDataUrl } from '../../utils/imageUtils'
+import { downloadImage, base64ToDataUrl, generateId } from '../../utils/imageUtils'
 
 const OUTFIT_CATEGORIES = {
   top: ['None/Shirtless', 'T-Shirt', 'Button-Up Shirt', 'Hoodie', 'Tank Top', 'Leather Jacket', 'Blazer', 'Sweater', 'Crop Top', 'Vest', 'Tactical Vest', 'Armor Plate', 'Robe', 'Flannel (Unbuttoned)', 'Corset', 'Cape/Cloak', 'Custom'],
@@ -67,14 +67,18 @@ export default function WardrobePanel() {
       return
     }
 
-    addOutfit({
+    const outfitToAdd = {
       ...newOutfit,
       image: null,
-    })
+      id: generateId(),
+    }
+
+    addOutfit(outfitToAdd)
 
     setNewOutfit(createEmptyNewOutfit())
     setShowNewForm(false)
     addToast('Outfit added to wardrobe!', 'success')
+    void handleGenerateOutfit(outfitToAdd)
   }
 
   const handleGenerateOutfit = async (outfit) => {
