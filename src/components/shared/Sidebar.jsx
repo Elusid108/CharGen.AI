@@ -22,10 +22,11 @@ const ICON_MAP = {
 
 const SPECIAL_TABS = [
   { id: 'generate', icon: Sparkles, label: 'Generation Studio', color: 'purple' },
-  { id: 'analyze', icon: Upload, label: 'Analyze Image', color: 'pink' },
   { id: 'wardrobe', icon: Shirt, label: 'Wardrobe', color: 'amber' },
   { id: 'library', icon: BookMarked, label: 'Library', color: 'emerald' },
 ]
+
+const ANALYZE_TAB = { id: 'analyze', icon: Upload, label: 'Analyze Image', color: 'pink' }
 
 export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggleSidebar, onOpenSettings }) {
   const randomizeAll = useCharacterStore(s => s.randomizeAll)
@@ -75,8 +76,22 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-4 space-y-0.5">
+        {/* Image Analysis — pinned above character sections */}
+        <button
+          type="button"
+          onClick={() => onTabChange(ANALYZE_TAB.id)}
+          className={`nav-item ${
+            currentTab === ANALYZE_TAB.id
+              ? 'bg-slate-800/80 text-pink-400 border-pink-500'
+              : 'nav-item-inactive'
+          }`}
+        >
+          <Upload size={16} className="shrink-0" />
+          <span className="truncate">{ANALYZE_TAB.label}</span>
+        </button>
+
         {/* Character Form Tabs */}
-        <div className="px-4 mb-2">
+        <div className="px-4 mb-2 mt-3">
           <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Character</span>
         </div>
         {Object.entries(CHARACTER_SECTIONS).map(([key, section]) => {

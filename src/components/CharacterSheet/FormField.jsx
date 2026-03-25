@@ -1,8 +1,8 @@
-import React from 'react'
+import React, { useState, useRef, useEffect, useId } from 'react'
 import { ChevronDown, Lock, Unlock } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 
-export default function FormField({ field, value, onChange, onHover }) {
+export default function FormField({ field, value, onChange, onHover, onSelectOptionHover }) {
   const isWide = field.type === 'range'
   const locked = useCharacterStore((s) => !!s.lockedFields[field.id])
   const toggleLock = useCharacterStore((s) => s.toggleLock)
@@ -32,7 +32,12 @@ export default function FormField({ field, value, onChange, onHover }) {
       </div>
 
       {field.type === 'select' && (
-        <SelectField field={field} value={value} onChange={onChange} />
+        <SelectField
+          field={field}
+          value={value}
+          onChange={onChange}
+          onOptionHover={onSelectOptionHover}
+        />
       )}
 
       {field.type === 'range' && (
@@ -50,22 +55,165 @@ export default function FormField({ field, value, onChange, onHover }) {
   )
 }
 
-function SelectField({ field, value, onChange }) {
+function SelectField({ field, value, onChange, onOptionHover }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const containerRef = useRef(null)
+  const buttonRef = useRef(null)
+  const listId = useId()
+  const options = field.options
+
+  const selectedIndex = options.findIndex((o) => o === value)
+  const displayLabel = value || 'Select...'
+
+  const closeMenu = () => {
+    setIsOpen(false)
+    setHighlightedIndex(-1)
+    buttonRef.current?.focus()
+  }
+
+  const openMenu = () => {
+    setIsOpen(true)
+    const start = selectedIndex >= 0 ? selectedIndex : 0
+    setHighlightedIndex(start)
+    const opt = options[start]
+    if (opt) onOptionHover?.(opt)
+  }
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handlePointerDown = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false)
+        setHighlightedIndex(-1)
+        buttonRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen || highlightedIndex < 0) return
+    const el = document.getElementById(`${listId}-opt-${highlightedIndex}`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [isOpen, highlightedIndex, listId])
+
+  const selectOption = (opt) => {
+    onChange(opt)
+    closeMenu()
+  }
+
+  const moveHighlightTo = (nextIdx) => {
+    const len = options.length
+    if (len === 0) return
+    const idx = Math.max(0, Math.min(nextIdx, len - 1))
+    setHighlightedIndex(idx)
+    const opt = options[idx]
+    if (opt) onOptionHover?.(opt)
+  }
+
+  const handleButtonKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      if (isOpen) {
+        e.preventDefault()
+        closeMenu()
+      }
+      return
+    }
+
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        openMenu()
+      }
+      return
+    }
+
+    const baseIndex =
+      highlightedIndex < 0
+        ? (selectedIndex >= 0 ? selectedIndex : 0)
+        : highlightedIndex
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      moveHighlightTo(baseIndex + 1)
+      return
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      moveHighlightTo(baseIndex - 1)
+      return
+    }
+
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      if (highlightedIndex >= 0) selectOption(options[highlightedIndex])
+    }
+  }
+
+  const activeDescendant =
+    isOpen && highlightedIndex >= 0 ? `${listId}-opt-${highlightedIndex}` : undefined
+
   return (
-    <div className="relative">
-      <select
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-        className="input-field w-full appearance-none cursor-pointer pr-10"
+    <div ref={containerRef} className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        id={`${listId}-trigger`}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={listId}
+        {...(activeDescendant ? { 'aria-activedescendant': activeDescendant } : {})}
+        onClick={() => (isOpen ? closeMenu() : openMenu())}
+        onKeyDown={handleButtonKeyDown}
+        className="input-field w-full cursor-pointer pr-10 text-left flex items-center justify-between gap-2"
       >
-        <option value="" disabled>Select...</option>
-        {field.options.map(opt => (
-          <option key={opt} value={opt}>{opt}</option>
-        ))}
-      </select>
-      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
-        <ChevronDown size={14} />
-      </div>
+        <span className={value ? 'text-slate-200' : 'text-slate-500'}>{displayLabel}</span>
+        <ChevronDown
+          size={14}
+          className={`shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+      </button>
+
+      {isOpen && (
+        <ul
+          id={listId}
+          role="listbox"
+          aria-labelledby={`${listId}-trigger`}
+          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-800 py-1 shadow-xl"
+        >
+          {options.map((opt, index) => {
+            const isSelected = value === opt
+            const isHighlighted = highlightedIndex === index
+            return (
+              <li
+                key={opt}
+                id={`${listId}-opt-${index}`}
+                role="option"
+                aria-selected={isSelected}
+                className={`cursor-pointer px-3 py-2 text-sm transition-colors ${
+                  isHighlighted ? 'bg-slate-700/90 text-white' : 'text-slate-200 hover:bg-slate-700/60'
+                } ${isSelected && !isHighlighted ? 'bg-slate-800 text-blue-300' : ''}`}
+                onMouseEnter={() => {
+                  setHighlightedIndex(index)
+                  onOptionHover?.(opt)
+                }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => selectOption(opt)}
+              >
+                {opt}
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }

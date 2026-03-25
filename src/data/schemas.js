@@ -219,6 +219,17 @@ export function getAllFieldIds() {
   return ids
 }
 
+/** Field ids that should be coerced to integers when applying image analysis JSON. */
+export function getNumericFieldIds() {
+  const ids = []
+  Object.values(CHARACTER_SECTIONS).forEach(section => {
+    section.fields.forEach(field => {
+      if (field.type === 'range' || field.type === 'number') ids.push(field.id)
+    })
+  })
+  return ids
+}
+
 // Get default character state
 export function getDefaultCharacter() {
   const char = {}

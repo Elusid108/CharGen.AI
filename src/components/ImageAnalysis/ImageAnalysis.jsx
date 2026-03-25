@@ -4,7 +4,10 @@ import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { analyzeImage } from '../../utils/api'
 import { buildAnalysisPrompt } from '../../utils/api'
-import { fileToBase64, base64ToDataUrl } from '../../utils/imageUtils'
+import { getNumericFieldIds } from '../../data/schemas'
+import { fileToBase64 } from '../../utils/imageUtils'
+
+const NUMERIC_FIELD_IDS = new Set(getNumericFieldIds())
 
 export default function ImageAnalysis() {
   const apiKey = useCharacterStore(s => s.apiKey)
@@ -108,15 +111,19 @@ export default function ImageAnalysis() {
     // Map analysis fields to character fields
     const updates = {}
     Object.entries(analysis).forEach(([key, value]) => {
-      if (value && value !== '' && value !== 'N/A' && value !== 'empty') {
-        // Handle numeric fields
-        if (key === 'muscle_def' || key === 'vascularity' || key === 'age' || key === 'aging') {
-          const num = parseInt(value, 10)
-          if (!isNaN(num)) updates[key] = num
-        } else {
-          updates[key] = value
-        }
+      if (value === '' || value === null || value === undefined) return
+      if (value === 'N/A' || value === 'empty') return
+
+      if (NUMERIC_FIELD_IDS.has(key)) {
+        const num =
+          typeof value === 'number' && !Number.isNaN(value)
+            ? Math.round(value)
+            : parseInt(String(value).trim(), 10)
+        if (!Number.isNaN(num)) updates[key] = num
+        return
       }
+
+      updates[key] = value
     })
 
     updateFields(updates)

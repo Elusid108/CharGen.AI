@@ -2,7 +2,12 @@ import React from 'react'
 import { Shuffle } from 'lucide-react'
 import { CHARACTER_SECTIONS } from '../../data/schemas'
 import { useCharacterStore } from '../../hooks/useCharacter'
-import { definitions, getRangeDescription, getRoleplayTip } from '../../data/definitions'
+import {
+  definitions,
+  getGenericAttributeDescription,
+  getRangeDescription,
+  getRoleplayTip,
+} from '../../data/definitions'
 import FormField from './FormField'
 
 export default function CharacterForm({ section, onContextChange }) {
@@ -46,7 +51,7 @@ export default function CharacterForm({ section, onContextChange }) {
 
     // Fallback description
     if (!description && value) {
-      description = `A defining characteristic that shapes how this character exists in the world.`
+      description = getGenericAttributeDescription()
     }
 
     // Get roleplay tip
@@ -88,6 +93,11 @@ export default function CharacterForm({ section, onContextChange }) {
             value={character[field.id]}
             onChange={(value) => handleFieldChange(field.id, value)}
             onHover={() => handleFieldHover(field.id)}
+            onSelectOptionHover={
+              field.type === 'select'
+                ? (opt) => updateContext(field.id, opt)
+                : undefined
+            }
           />
         ))}
       </div>

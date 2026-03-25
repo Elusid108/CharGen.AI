@@ -3,6 +3,7 @@
  */
 
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from './modelConstants'
+import { CHARACTER_SECTIONS } from '../data/schemas'
 
 // --- Text Generation (Gemini) ---
 
@@ -515,49 +516,33 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
 // --- Image Analysis Prompt ---
 
 export function buildAnalysisPrompt() {
-  return `Analyze this character image in extreme detail and extract attributes. Return ONLY valid JSON (no markdown, no code fences) matching this exact structure:
+  const template = {}
+  Object.values(CHARACTER_SECTIONS).forEach((section) => {
+    section.fields.forEach((field) => {
+      if (field.type === 'range') {
+        template[field.id] = field.default ?? 50
+      } else if (field.type === 'number') {
+        template[field.id] =
+          typeof field.default === 'number' ? field.default : 25
+      } else {
+        template[field.id] = '<non-empty string>'
+      }
+    })
+  })
 
-{
-  "name": "suggested name or empty string",
-  "species": "Human/Humanoid Alien/Creature/etc",
-  "sex": "Male/Female/Intersex/Ambiguous",
-  "gender": "Man/Woman/Non-binary/etc",
-  "age": "estimated chronological age as number or empty",
-  "race": "short label or empty",
-  "ethnicity": "short label or empty",
-  "origin": "birthplace/upbringing hint or empty",
-  "height": "Very Short/Tall/etc or short phrase",
-  "skin_tone": "description",
-  "skin_texture": "Smooth/Scarred/etc or empty",
-  "hair_style": "description",
-  "hair_color": "description",
-  "eye_color": "description",
-  "facial_structure": "Chiseled/Rugged/Soft/etc",
-  "mustache": "style or None / empty",
-  "beard": "style or None / empty",
-  "aging": "apparent age as integer or empty",
-  "body_hair": "description or N/A",
-  "forearms": "Slender/Toned/Muscular/etc or empty",
-  "upper_arms": "descriptor or empty",
-  "shoulders": "descriptor or empty",
-  "neck": "descriptor or empty",
-  "chest_size": "descriptor or empty",
-  "abs": "descriptor or empty",
-  "back": "descriptor or empty",
-  "glutes": "descriptor or empty",
-  "upper_legs": "descriptor or empty",
-  "lower_legs": "descriptor or empty",
-  "muscle_def": "0-100 number",
-  "vascularity": "0-100 number",
-  "scars": "description or empty",
-  "blemishes": "description or empty",
-  "special_features": "horns/wings/tail/etc or empty",
-  "attire": "what they are wearing",
-  "personality": "inferred personality trait",
-  "archetype": "The Hero/The Outlaw/etc",
-  "alignment": "Lawful Good/Chaotic Neutral/etc",
-  "mood_expression": "description of expression/mood"
-}
+  const jsonShape = JSON.stringify(template, null, 2)
 
-Be specific and detailed. If something is not visible, use your best judgment or leave empty.`
+  return (
+    'You are an expert character designer and visual analyst. Analyze the provided image in extreme detail.\n\n' +
+    'Return ONLY valid JSON. No markdown, no code fences, no commentary before or after the JSON object.\n\n' +
+    'CRITICAL RULES:\n' +
+    '- You must completely fill out EVERY SINGLE FIELD in the schema below. Include every key exactly once. Do not omit keys.\n' +
+    '- Do not leave any string field blank. Do not use "", "N/A", "empty", or "unknown". Infer the most logical demographic, physical, psychological, narrative, social, and adult traits from visual evidence; when the image cannot directly show something, infer from context, fashion, body language, setting, and archetype.\n' +
+    '- All numeric and range fields must be JSON numbers (integers). Ranges use the min/max defined in the app (typically 0–100 for sliders).\n' +
+    '- For every field whose value is chosen from a fixed list in the app (select fields), the string MUST match one allowed option EXACTLY — same spelling, spacing, and punctuation (including apostrophes).\n' +
+    '- Whenever you set a select field to "Custom", you MUST also fill its matching *_custom field with a concrete, specific description.\n' +
+    '- Text fields (names, custom lines, narrative picks) should be vivid, specific, and non-generic.\n\n' +
+    'The JSON object MUST contain exactly these keys with the indicated types (replace placeholder values with your analysis):\n' +
+    jsonShape
+  )
 }
