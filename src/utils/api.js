@@ -308,37 +308,7 @@ export async function generateImage(apiKey, prompt, options = {}) {
   return data.predictions[0].bytesBase64Encoded
 }
 
-// --- Backstory Generation ---
-
-export async function generateBackstory(apiKey, character, options = {}) {
-  const { length = 'Standard Bio', tone = 'Simple', genre = 'High Fantasy', modelId } = options
-
-  const charSummary = Object.entries(character)
-    .filter(([_, v]) => v !== '' && v !== null && v !== undefined)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join('\n')
-
-  const systemInstruction = `You are a master fiction writer specializing in character backstories. Write vivid, immersive prose that brings characters to life. Never list stats - write narratively. Focus on sensory details, emotional depth, and the internal conflicts that define the character.`
-
-  const userPrompt = `Write a creative character backstory.
-Length: ${length}.
-Tone/Style: ${tone}.
-Genre: ${genre}.
-
-Character Data:
-${charSummary}
-
-Instructions:
-1. Write prose, not a stat block. Be descriptive and evocative.
-2. Focus on how their internal conflicts interact with their history.
-3. Use sensory details - what they smell like, how they move, what their voice sounds like.
-4. Weave their fears, goals, and personality traits naturally into the narrative.
-5. Make it feel like the opening chapter of their story.`
-
-  return generateText(apiKey, systemInstruction, userPrompt, { temperature: 1.1, ...(modelId ? { modelId } : {}) })
-}
-
-// --- Prompt Helper: Translate numeric stats to visual descriptions ---
+// --- Prompt helpers: translate numeric stats to visual descriptions ---
 
 function describeMuscleDef(val) {
   const v = parseInt(val)
@@ -374,109 +344,108 @@ function selectDisplay(c, id) {
   return String(v)
 }
 
+function groomingLineRejected(t) {
+  return /^None /i.test(t) || t === 'N/A (Non-Human)'
+}
+
+/**
+ * Observable visual description from schema-driven sections (identity, face, physical, sweat, intimate attire).
+ * New body-part fields in `physical` are picked up automatically.
+ * @param {Record<string, unknown>} characterState
+ * @param {{ omitAttire?: boolean }} [options]
+ */
+export function buildDetailedPhysicalPrompt(characterState, options = {}) {
+  const { omitAttire = false } = options
+  const c = characterState
+  const parts = []
+
+  const species = selectDisplay(c, 'species') || 'human'
+  const sex = c.sex ? String(c.sex) : ''
+  const gender = c.gender ? String(c.gender) : ''
+  const age = c.age !== '' && c.age != null ? String(c.age) : ''
+  const apparent = c.aging !== '' && c.aging != null ? String(c.aging) : ''
+
+  let opener = `Subject is ${species}`
+  if (sex) opener += `, biological sex ${sex}`
+  if (gender) opener += `, gender identity ${gender}`
+  if (age) opener += `, chronological age ${age}`
+  if (apparent) opener += `, apparent age around ${apparent}`
+  parts.push(`${opener}.`)
+
+  const identitySkip = new Set(['name', 'orientation', 'archetype', 'species', 'sex', 'gender', 'age'])
+  CHARACTER_SECTIONS.identity.fields.forEach((field) => {
+    if (field.conditional || identitySkip.has(field.id)) return
+    if (field.type === 'select') {
+      const t = selectDisplay(c, field.id)
+      if (t) parts.push(`${field.label}: ${t}.`)
+    }
+  })
+
+  CHARACTER_SECTIONS.face.fields.forEach((field) => {
+    if (field.conditional || field.id === 'aging') return
+    if (field.type === 'select') {
+      const t = selectDisplay(c, field.id)
+      if (!t) return
+      if ((field.id === 'mustache' || field.id === 'beard') && groomingLineRejected(t)) return
+      parts.push(`${field.label}: ${t}.`)
+    } else if (field.type === 'number') {
+      const t = c[field.id]
+      if (t !== '' && t != null) parts.push(`${field.label}: ${t}.`)
+    }
+  })
+
+  CHARACTER_SECTIONS.physical.fields.forEach((field) => {
+    if (field.conditional) return
+    if (field.type === 'select') {
+      const t = selectDisplay(c, field.id)
+      if (!t) return
+      if (field.id === 'body_hair' && t === 'N/A (Non-Human)') return
+      parts.push(`${field.label}: ${t}.`)
+    } else if (field.type === 'range') {
+      if (field.id === 'muscle_def') {
+        const d = describeMuscleDef(c.muscle_def)
+        if (d) parts.push(`${field.label}: ${d}.`)
+      } else if (field.id === 'vascularity') {
+        const d = describeVascularity(c.vascularity)
+        if (d) parts.push(`${field.label}: ${d}.`)
+      }
+    }
+  })
+
+  const glistenDesc = describeSkinGlisten(c.sweat_glisten)
+  if (glistenDesc) parts.push(`Skin surface / sweat: ${glistenDesc}.`)
+
+  if (!omitAttire) {
+    const attire = selectDisplay(c, 'attire')
+    if (attire) {
+      parts.push(`Clothing and coverage (must match exactly in the image): ${attire}.`)
+      parts.push(
+        'CRITICAL: All visible garments must correspond to the clothing described above—do not substitute a different outfit.'
+      )
+    }
+  }
+
+  return parts.join(' ')
+}
+
 // --- Image Prompt Builder ---
 
 export function buildImagePrompt(character, imageType = 'profile', styleModifiers = {}) {
   const parts = []
 
-  // Core physical description
-  const species = selectDisplay(character, 'species') || 'human'
-  const sex = character.sex || ''
-  const age = character.age || ''
-  const skinTone = selectDisplay(character, 'skin_tone')
-  const skinTexture = selectDisplay(character, 'skin_texture')
-  const hairStyle = character.hair_style || ''
-  const hairColor = character.hair_color || ''
-  const eyeColor = selectDisplay(character, 'eye_color')
-  const facialStructure = character.facial_structure || ''
+  const physical = buildDetailedPhysicalPrompt(character, { omitAttire: imageType === 'mannequin' })
+  parts.push(`A highly detailed character concept art. ${physical}`)
 
-  const lineage = [selectDisplay(character, 'race'), selectDisplay(character, 'ethnicity'), selectDisplay(character, 'origin')].filter(Boolean)
-  const apparent = character.aging !== '' && character.aging != null ? String(character.aging) : ''
-
-  parts.push(
-    `A highly detailed character concept art of a ${age ? age + ' year old ' : ''}${sex} ${species}` +
-      `${apparent ? `, apparent age around ${apparent}` : ''}.`
-  )
-
-  if (lineage.length) parts.push(`Ancestry / background: ${lineage.join('; ')}.`)
-
-  const height = selectDisplay(character, 'height')
-  if (height) parts.push(`Height: ${height}.`)
-
-  // Translate muscle_def to visual description instead of raw percentage
-  const muscleDesc = describeMuscleDef(character.muscle_def)
-  if (muscleDesc) parts.push(`Body: ${muscleDesc}.`)
-
-  const bodyPartLabels = [
-    ['forearms', 'forearms'],
-    ['upper_arms', 'upper arms'],
-    ['shoulders', 'shoulders'],
-    ['neck', 'neck'],
-    ['chest_size', 'chest'],
-    ['abs', 'abs'],
-    ['back', 'back'],
-    ['glutes', 'hips/glutes'],
-    ['upper_legs', 'thighs'],
-    ['lower_legs', 'calves'],
-  ]
-  const bodyBits = bodyPartLabels
-    .map(([id, label]) => {
-      const t = selectDisplay(character, id)
-      return t ? `${label}: ${t}` : null
-    })
-    .filter(Boolean)
-  if (bodyBits.length) parts.push(`Proportions: ${bodyBits.join('; ')}.`)
-
-  if (skinTone) parts.push(`Skin tone: ${skinTone}.`)
-  if (skinTexture) parts.push(`Skin texture: ${skinTexture}.`)
-  if (facialStructure) parts.push(`Facial structure: ${facialStructure}.`)
-
-  const mustache = selectDisplay(character, 'mustache')
-  if (mustache && !/^None /i.test(mustache) && mustache !== 'N/A (Non-Human)') {
-    parts.push(`Mustache: ${mustache}.`)
-  }
-  const beard = selectDisplay(character, 'beard')
-  if (beard && !/^None /i.test(beard) && beard !== 'N/A (Non-Human)') {
-    parts.push(`Beard: ${beard}.`)
-  }
-
-  if (hairStyle) parts.push(`Hair: ${hairStyle}${hairColor && hairColor !== 'Bald/N/A' ? ', ' + hairColor : ''}.`)
-  if (eyeColor) parts.push(`Eyes: ${eyeColor}.`)
-  const bodyHair = selectDisplay(character, 'body_hair')
-  if (bodyHair && bodyHair !== 'N/A (Non-Human)') parts.push(`Body hair: ${bodyHair}.`)
-  const scars = selectDisplay(character, 'scars')
-  if (scars) parts.push(`Distinguishing marks: ${scars}.`)
-  const blemishes = selectDisplay(character, 'blemishes')
-  if (blemishes) parts.push(`Imperfections: ${blemishes}.`)
-
-  // Translate vascularity and sweat to visual descriptions
-  const vascDesc = describeVascularity(character.vascularity)
-  if (vascDesc) parts.push(`Veins: ${vascDesc}.`)
-
-  const glistenDesc = describeSkinGlisten(character.sweat_glisten)
-  if (glistenDesc) parts.push(`Skin surface: ${glistenDesc}.`)
-
-  // Non-human features
-  const special = selectDisplay(character, 'special_features')
-  if (special) parts.push(`Special features: ${special}.`)
-
-  // Only use personality for expression/mood -- do NOT include alignment or archetype
-  // as they are narrative concepts that confuse the image model
   if (character.personality) {
     parts.push(`Their facial expression conveys a ${character.personality} demeanor.`)
   }
 
-  // Image type specific instructions
   switch (imageType) {
     case 'profile':
       parts.push('Framing: Head and shoulders portrait, 1:1 square aspect ratio. Solid dark background.')
       break
     case 'fullbody':
       parts.push('Framing: Full body shot, natural relaxed confident pose. Solid dark background.')
-      {
-        const attire = selectDisplay(character, 'attire')
-        if (attire) parts.push(`Wearing: ${attire}.`)
-      }
       break
     case 'tpose':
       parts.push(
@@ -502,7 +471,6 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
       parts.push('Solid dark cinematic background.')
   }
 
-  // Style modifiers
   const { artStyle = '', lighting = '', mood = '' } = styleModifiers
   let styleStr = 'Style: High quality digital concept art, 8k resolution, detailed.'
   if (artStyle) styleStr += ` ${artStyle}.`
@@ -511,6 +479,40 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
   parts.push(styleStr)
 
   return parts.join(' ')
+}
+
+// --- Backstory Generation ---
+
+export async function generateBackstory(apiKey, character, options = {}) {
+  const { length = 'Standard Bio', tone = 'Simple', genre = 'High Fantasy', modelId } = options
+
+  const characterJson = JSON.stringify(character ?? {}, null, 2)
+
+  const systemInstruction = `You are an expert storyteller. You receive the complete character as a JSON object (goal, fear, trauma, kinks, MBTI, archetype, OCEAN sliders, physical traits, social patterns, adult themes, etc.). Use that entire object as the authoritative context.
+
+Write flowing narrative prose only—never output a stat block, bullet list of attributes, or repeat the JSON.
+
+Prioritize internal psychology, narrative history, goals, fears, trauma, relationships, and voice/movement when they appear in the JSON. Reference demographic and species context where it shapes the story. Use fine-grained body-part slider details only when they clearly matter to appearance, scars, or story logic (otherwise imply broad look through higher-level traits).
+
+Every major psychological and narrative field provided should influence the backstory in a coherent, consistent way.`
+
+  const userPrompt = `Write a creative character backstory.
+
+Length: ${length}.
+Tone/Style: ${tone}.
+Genre: ${genre}.
+
+Complete character (JSON—use as sole canonical context):
+${characterJson}
+
+Instructions:
+1. Output prose only; do not echo or enumerate the JSON keys.
+2. Weave goal, fear, trauma, desires, lies, virtues, vices, alignment, MBTI, enneagram, archetype, and social traits into a single coherent history and present condition.
+3. Use sensory and behavioral texture (voice, gait, scent, aura) when those fields are present.
+4. Adult-section fields are part of character truth where relevant; keep tone aligned with the requested genre and tone.
+5. Make it feel like the opening chapter of their story.`
+
+  return generateText(apiKey, systemInstruction, userPrompt, { temperature: 1.1, ...(modelId ? { modelId } : {}) })
 }
 
 // --- Image Analysis Prompt ---

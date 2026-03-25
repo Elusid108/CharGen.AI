@@ -84,9 +84,18 @@ export default function GenerationPanel() {
         artStyle, lighting, mood,
       })
 
+      const modelId = selectedImageModel || DEFAULT_IMAGE_MODEL
+      const referenceImageBase64 =
+        modelId === 'gemini-3-flash-image' &&
+        imageType !== 'mannequin' &&
+        generatedImages?.mannequin
+          ? generatedImages.mannequin
+          : null
+
       const base64 = await callGenerateImage(apiKey, prompt, imageModelOptions({
         aspectRatio: typeConfig.ratio,
         negativePrompt,
+        ...(referenceImageBase64 ? { referenceImageBase64 } : {}),
       }))
 
       setGeneratedImage(imageType, base64)

@@ -35,6 +35,35 @@ function pickLockedFromCharacter(character, lockedFields) {
   return out
 }
 
+/** Random value for one schema field; returns undefined if this field is not auto-randomized. */
+function randomValueForField(field) {
+  switch (field.type) {
+    case 'select':
+      return randomSelectValue(field)
+    case 'range':
+      return randomRange(field.min ?? 0, field.max ?? 100)
+    case 'number':
+      if (field.id === 'age') return randomRange(18, 80)
+      if (field.id === 'aging') {
+        const lo = field.min ?? 1
+        const hi = field.max ?? 120
+        return randomRange(lo, hi)
+      }
+      return undefined
+    case 'text':
+      if (field.id === 'name') return randomName()
+      return undefined
+    default:
+      return undefined
+  }
+}
+
+function fieldSkippedForRandomize(field, lockedFields) {
+  if (field.conditional) return true
+  if (lockedFields[field.id]) return true
+  return false
+}
+
 /** Pool-based full randomize; respects lockedFields by copying values from `character`. */
 function buildLocalRandomizedCharacter(lockedFields, character) {
   const nextCharacter = { ...getDefaultCharacter() }
@@ -43,31 +72,11 @@ function buildLocalRandomizedCharacter(lockedFields, character) {
     if (lockedFields[id]) nextCharacter[id] = character[id]
   })
 
-  Object.keys(CHARACTER_SECTIONS).forEach((sectionKey) => {
-    const section = CHARACTER_SECTIONS[sectionKey]
+  Object.entries(CHARACTER_SECTIONS).forEach(([_sectionId, section]) => {
     section.fields.forEach((field) => {
-      if (field.conditional) return
-      if (lockedFields[field.id]) return
-
-      switch (field.type) {
-        case 'select':
-          nextCharacter[field.id] = randomSelectValue(field)
-          break
-        case 'range':
-          nextCharacter[field.id] = randomRange(field.min ?? 0, field.max ?? 100)
-          break
-        case 'number':
-          if (field.id === 'age') nextCharacter[field.id] = randomRange(18, 80)
-          else if (field.id === 'aging') {
-            const lo = field.min ?? 1
-            const hi = field.max ?? 120
-            nextCharacter[field.id] = randomRange(lo, hi)
-          }
-          break
-        case 'text':
-          if (field.id === 'name') nextCharacter[field.id] = randomName()
-          break
-      }
+      if (fieldSkippedForRandomize(field, lockedFields)) return
+      const val = randomValueForField(field)
+      if (val !== undefined) nextCharacter[field.id] = val
     })
   })
 
@@ -267,29 +276,11 @@ export const useCharacterStore = create((set, get) => ({
 
     const updates = {}
 
-    section.fields.forEach(field => {
-      if (field.conditional) return // Skip conditional fields
-      if (get().lockedFields[field.id]) return
-
-      switch (field.type) {
-        case 'select':
-          updates[field.id] = randomSelectValue(field)
-          break
-        case 'range':
-          updates[field.id] = randomRange(field.min ?? 0, field.max ?? 100)
-          break
-        case 'number':
-          if (field.id === 'age') updates[field.id] = randomRange(18, 80)
-          else if (field.id === 'aging') {
-            const lo = field.min ?? 1
-            const hi = field.max ?? 120
-            updates[field.id] = randomRange(lo, hi)
-          }
-          break
-        case 'text':
-          if (field.id === 'name') updates[field.id] = randomName()
-          break
-      }
+    const lf = get().lockedFields
+    section.fields.forEach((field) => {
+      if (fieldSkippedForRandomize(field, lf)) return
+      const val = randomValueForField(field)
+      if (val !== undefined) updates[field.id] = val
     })
 
     set(state => ({
