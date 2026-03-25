@@ -68,9 +68,14 @@ function buildCharacterFieldSpecFromSchema(schema) {
         entry.min = field.min ?? 0
         entry.max = field.max ?? 100
       }
-      if (field.type === 'number' && field.id === 'age') {
-        entry.min = 18
-        entry.max = 80
+      if (field.type === 'number') {
+        if (field.id === 'age') {
+          entry.min = 18
+          entry.max = 80
+        } else if (field.min !== undefined || field.max !== undefined) {
+          entry.min = field.min ?? 0
+          entry.max = field.max ?? 9999
+        }
       }
       fields.push(entry)
     }
@@ -92,7 +97,7 @@ CRITICAL — Psychological Consistency (MBTI and OCEAN Big Five):
 - Neuroticism (ocean_n) is not determined by MBTI letters; set it freely for character depth.
 
 CRITICAL — Narrative quality:
-- Text fields such as origin/race_ethnicity, goal, fear, desire, trauma, quirk, moral_code, prejudice, scars, distinguishing features, kinks, etc. must be highly creative, specific, and non-cliché. Avoid generic phrases.
+- Text fields such as race_custom, ethnicity_custom, origin_custom, goal, fear, desire, trauma, quirk, moral_code, prejudice, scars, distinguishing features, kinks, etc. must be highly creative, specific, and non-cliché. Avoid generic phrases.
 
 Rules for the JSON:
 - Every key listed in the field specification must appear exactly once.
@@ -100,7 +105,8 @@ Rules for the JSON:
 - For "range" fields, use integers within the given min/max.
 - For "text" fields, use strings; use "" if nothing applies.
 - For conditional fields (onlyWhen), use a meaningful string when the condition holds, otherwise "".
-- For "number" age, use an integer from 18 to 80.`
+- For "number" field age, use an integer from 18 to 80.
+- For "number" field aging (apparent age), use an integer within the min/max given in the field spec when present.`
 
 /**
  * Ask Gemini for a full character profile as JSON matching the app schema.
@@ -325,40 +331,88 @@ function describeSkinGlisten(val) {
   return 'skin drenched in sweat, heavily glistening and reflecting light'
 }
 
+/** Resolve select + optional *_custom (when value is "Custom"). */
+function selectDisplay(c, id) {
+  const v = c[id]
+  if (!v) return ''
+  if (v === 'Custom') return String(c[`${id}_custom`] || '').trim()
+  return String(v)
+}
+
 // --- Image Prompt Builder ---
 
 export function buildImagePrompt(character, imageType = 'profile', styleModifiers = {}) {
   const parts = []
 
   // Core physical description
-  const species = character.species || 'human'
+  const species = selectDisplay(character, 'species') || 'human'
   const sex = character.sex || ''
   const age = character.age || ''
-  const physique = character.physique || ''
-  const skinTone = character.skin_tone || ''
+  const skinTone = selectDisplay(character, 'skin_tone')
+  const skinTexture = selectDisplay(character, 'skin_texture')
   const hairStyle = character.hair_style || ''
   const hairColor = character.hair_color || ''
-  const eyeColor = character.eye_color || ''
+  const eyeColor = selectDisplay(character, 'eye_color')
   const facialStructure = character.facial_structure || ''
-  const facialHair = character.facial_hair || ''
 
-  parts.push(`A highly detailed character concept art of a ${age ? age + ' year old ' : ''}${sex} ${species}.`)
+  const lineage = [selectDisplay(character, 'race'), selectDisplay(character, 'ethnicity'), selectDisplay(character, 'origin')].filter(Boolean)
+  const apparent = character.aging !== '' && character.aging != null ? String(character.aging) : ''
 
-  if (physique) parts.push(`Build: ${physique}.`)
+  parts.push(
+    `A highly detailed character concept art of a ${age ? age + ' year old ' : ''}${sex} ${species}` +
+      `${apparent ? `, apparent age around ${apparent}` : ''}.`
+  )
+
+  if (lineage.length) parts.push(`Ancestry / background: ${lineage.join('; ')}.`)
+
+  const height = selectDisplay(character, 'height')
+  if (height) parts.push(`Height: ${height}.`)
 
   // Translate muscle_def to visual description instead of raw percentage
   const muscleDesc = describeMuscleDef(character.muscle_def)
   if (muscleDesc) parts.push(`Body: ${muscleDesc}.`)
 
+  const bodyPartLabels = [
+    ['forearms', 'forearms'],
+    ['upper_arms', 'upper arms'],
+    ['shoulders', 'shoulders'],
+    ['neck', 'neck'],
+    ['chest_size', 'chest'],
+    ['abs', 'abs'],
+    ['back', 'back'],
+    ['glutes', 'hips/glutes'],
+    ['upper_legs', 'thighs'],
+    ['lower_legs', 'calves'],
+  ]
+  const bodyBits = bodyPartLabels
+    .map(([id, label]) => {
+      const t = selectDisplay(character, id)
+      return t ? `${label}: ${t}` : null
+    })
+    .filter(Boolean)
+  if (bodyBits.length) parts.push(`Proportions: ${bodyBits.join('; ')}.`)
+
   if (skinTone) parts.push(`Skin tone: ${skinTone}.`)
-  if (character.skin_texture) parts.push(`Skin texture: ${character.skin_texture}.`)
+  if (skinTexture) parts.push(`Skin texture: ${skinTexture}.`)
   if (facialStructure) parts.push(`Facial structure: ${facialStructure}.`)
-  if (facialHair && facialHair !== 'N/A') parts.push(`Facial hair: ${facialHair}.`)
+
+  const mustache = selectDisplay(character, 'mustache')
+  if (mustache && !/^None /i.test(mustache) && mustache !== 'N/A (Non-Human)') {
+    parts.push(`Mustache: ${mustache}.`)
+  }
+  const beard = selectDisplay(character, 'beard')
+  if (beard && !/^None /i.test(beard) && beard !== 'N/A (Non-Human)') {
+    parts.push(`Beard: ${beard}.`)
+  }
+
   if (hairStyle) parts.push(`Hair: ${hairStyle}${hairColor && hairColor !== 'Bald/N/A' ? ', ' + hairColor : ''}.`)
   if (eyeColor) parts.push(`Eyes: ${eyeColor}.`)
-  if (character.body_hair && character.body_hair !== 'N/A (Non-Human)') parts.push(`Body hair: ${character.body_hair}.`)
-  if (character.scars) parts.push(`Distinguishing marks: ${character.scars}.`)
-  if (character.blemishes) parts.push(`Imperfections: ${character.blemishes}.`)
+  const bodyHair = selectDisplay(character, 'body_hair')
+  if (bodyHair && bodyHair !== 'N/A (Non-Human)') parts.push(`Body hair: ${bodyHair}.`)
+  const scars = selectDisplay(character, 'scars')
+  if (scars) parts.push(`Distinguishing marks: ${scars}.`)
+  const blemishes = selectDisplay(character, 'blemishes')
+  if (blemishes) parts.push(`Imperfections: ${blemishes}.`)
 
   // Translate vascularity and sweat to visual descriptions
   const vascDesc = describeVascularity(character.vascularity)
@@ -368,7 +422,8 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
   if (glistenDesc) parts.push(`Skin surface: ${glistenDesc}.`)
 
   // Non-human features
-  if (character.special_features) parts.push(`Special features: ${character.special_features}.`)
+  const special = selectDisplay(character, 'special_features')
+  if (special) parts.push(`Special features: ${special}.`)
 
   // Only use personality for expression/mood -- do NOT include alignment or archetype
   // as they are narrative concepts that confuse the image model
@@ -383,7 +438,10 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
       break
     case 'fullbody':
       parts.push('Framing: Full body shot, natural relaxed confident pose. Solid dark background.')
-      if (character.attire) parts.push(`Wearing: ${character.attire}.`)
+      {
+        const attire = selectDisplay(character, 'attire')
+        if (attire) parts.push(`Wearing: ${attire}.`)
+      }
       break
     case 'tpose':
       parts.push(
@@ -430,17 +488,35 @@ export function buildAnalysisPrompt() {
   "species": "Human/Humanoid Alien/Creature/etc",
   "sex": "Male/Female/Intersex/Ambiguous",
   "gender": "Man/Woman/Non-binary/etc",
-  "age": "estimated number",
-  "physique": "Athletic/Bodybuilder/Wiry/Stocky/etc",
+  "age": "estimated chronological age as number or empty",
+  "race": "short label or empty",
+  "ethnicity": "short label or empty",
+  "origin": "birthplace/upbringing hint or empty",
+  "height": "Very Short/Tall/etc or short phrase",
   "skin_tone": "description",
+  "skin_texture": "Smooth/Scarred/etc or empty",
   "hair_style": "description",
   "hair_color": "description",
   "eye_color": "description",
   "facial_structure": "Chiseled/Rugged/Soft/etc",
-  "facial_hair": "Clean Shaven/Stubble/Beard/etc or N/A",
+  "mustache": "style or None / empty",
+  "beard": "style or None / empty",
+  "aging": "apparent age as integer or empty",
   "body_hair": "description or N/A",
+  "forearms": "Slender/Toned/Muscular/etc or empty",
+  "upper_arms": "descriptor or empty",
+  "shoulders": "descriptor or empty",
+  "neck": "descriptor or empty",
+  "chest_size": "descriptor or empty",
+  "abs": "descriptor or empty",
+  "back": "descriptor or empty",
+  "glutes": "descriptor or empty",
+  "upper_legs": "descriptor or empty",
+  "lower_legs": "descriptor or empty",
   "muscle_def": "0-100 number",
+  "vascularity": "0-100 number",
   "scars": "description or empty",
+  "blemishes": "description or empty",
   "special_features": "horns/wings/tail/etc or empty",
   "attire": "what they are wearing",
   "personality": "inferred personality trait",

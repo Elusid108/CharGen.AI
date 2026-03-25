@@ -39,6 +39,10 @@ export default function CharacterForm({ section, onContextChange }) {
       description = getRangeDescription(fieldId, value)
       title = `${field.label}: ${value}%`
     }
+    if (field?.type === 'number' && fieldId === 'aging' && value !== '' && value != null) {
+      description = getRangeDescription('aging', value)
+      title = `${field.label}: ${value}`
+    }
 
     // Fallback description
     if (!description && value) {
@@ -66,8 +70,9 @@ export default function CharacterForm({ section, onContextChange }) {
           <p className="text-slate-400 text-sm">{sectionData.description}</p>
         </div>
         <button
+          type="button"
           onClick={() => randomizeSection(section)}
-          className="text-slate-400 hover:text-blue-400 transition-colors text-sm font-mono flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-800 border border-transparent hover:border-slate-700"
+          className="btn-primary flex items-center gap-2 text-sm shrink-0 px-4 py-2"
         >
           <Shuffle size={14} />
           Randomize

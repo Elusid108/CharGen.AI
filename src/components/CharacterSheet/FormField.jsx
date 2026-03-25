@@ -125,11 +125,12 @@ function NumberField({ field, value, onChange }) {
   return (
     <input
       type="number"
-      value={value || ''}
-      onChange={(e) => onChange(e.target.value ? parseInt(e.target.value) : '')}
+      value={value === 0 ? 0 : value || ''}
+      onChange={(e) => onChange(e.target.value ? parseInt(e.target.value, 10) : '')}
       placeholder={field.placeholder || ''}
       className="input-field w-full"
-      min={0}
+      {...(field.min !== undefined ? { min: field.min } : {})}
+      {...(field.max !== undefined ? { max: field.max } : {})}
     />
   )
 }

@@ -110,8 +110,8 @@ export default function ImageAnalysis() {
     Object.entries(analysis).forEach(([key, value]) => {
       if (value && value !== '' && value !== 'N/A' && value !== 'empty') {
         // Handle numeric fields
-        if (key === 'muscle_def' || key === 'age') {
-          const num = parseInt(value)
+        if (key === 'muscle_def' || key === 'vascularity' || key === 'age' || key === 'aging') {
+          const num = parseInt(value, 10)
           if (!isNaN(num)) updates[key] = num
         } else {
           updates[key] = value

@@ -168,23 +168,6 @@ export const selectPrejudiceOptions = [
   'Dismisses young and old alike',
 ]
 
-export const selectRaceEthnicityOptions = [
-  'East Asian heritage',
-  'South Asian heritage',
-  'West African heritage',
-  'North African heritage',
-  'Nordic / Scandinavian',
-  'Mediterranean',
-  'Indigenous Americas',
-  'Pacific Islander',
-  'Middle Eastern',
-  'Slavic',
-  'Martian colony-born',
-  'Orbital station raised',
-  'Deep-sea habitat',
-  'Synthetic / lab-grown',
-]
-
 export const selectScarsOptions = [
   'Slash across torso',
   'Burn patch on shoulder',

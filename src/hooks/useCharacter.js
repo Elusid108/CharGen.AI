@@ -58,6 +58,11 @@ function buildLocalRandomizedCharacter(lockedFields, character) {
           break
         case 'number':
           if (field.id === 'age') nextCharacter[field.id] = randomRange(18, 80)
+          else if (field.id === 'aging') {
+            const lo = field.min ?? 1
+            const hi = field.max ?? 120
+            nextCharacter[field.id] = randomRange(lo, hi)
+          }
           break
         case 'text':
           if (field.id === 'name') nextCharacter[field.id] = randomName()
@@ -88,9 +93,17 @@ function sanitizeLlmCharacter(parsed) {
       out[id] = Number.isFinite(n)
         ? Math.min(field.max ?? 100, Math.max(field.min ?? 0, Math.round(n)))
         : defaults[id]
-    } else if (field.type === 'number' && id === 'age') {
+    } else if (field.type === 'number') {
       const n = parseInt(v, 10)
-      out[id] = Number.isFinite(n) ? Math.min(80, Math.max(18, n)) : defaults[id]
+      if (!Number.isFinite(n)) {
+        out[id] = defaults[id]
+      } else if (id === 'age') {
+        out[id] = Math.min(80, Math.max(18, n))
+      } else {
+        const lo = field.min ?? 0
+        const hi = field.max ?? 9999
+        out[id] = Math.min(hi, Math.max(lo, n))
+      }
     } else if (field.type === 'select') {
       const s = String(v)
       out[id] = field.options.includes(s) ? s : defaults[id]
@@ -267,6 +280,11 @@ export const useCharacterStore = create((set, get) => ({
           break
         case 'number':
           if (field.id === 'age') updates[field.id] = randomRange(18, 80)
+          else if (field.id === 'aging') {
+            const lo = field.min ?? 1
+            const hi = field.max ?? 120
+            updates[field.id] = randomRange(lo, hi)
+          }
           break
         case 'text':
           if (field.id === 'name') updates[field.id] = randomName()
