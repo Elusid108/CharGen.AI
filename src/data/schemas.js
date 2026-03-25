@@ -6,6 +6,7 @@
 
 import {
   selectAttractionTypeOptions,
+  selectIntimidatedByOptions,
   selectBlemishesOptions,
   selectDesireOptions,
   selectDistinguishingFacialOptions,
@@ -196,11 +197,13 @@ export const CHARACTER_SECTIONS = {
       { id: 'turn_offs_custom', label: 'Custom Turn Offs', type: 'text', placeholder: 'What repels them...', conditional: { field: 'turn_offs', value: 'Custom' } },
       { id: 'attraction_type', label: 'Attracted To', type: 'select', options: [...selectAttractionTypeOptions, 'Custom'] },
       { id: 'attraction_type_custom', label: 'Custom Attraction', type: 'text', placeholder: 'Physical types, personality traits they find attractive...', conditional: { field: 'attraction_type', value: 'Custom' } },
+      { id: 'intimidated_by', label: 'Intimidated By', type: 'select', options: [...selectIntimidatedByOptions, 'Custom'] },
+      { id: 'intimidated_by_custom', label: 'Custom Intimidation', type: 'text', placeholder: 'Situations, people, or dynamics that unnerve them...', conditional: { field: 'intimidated_by', value: 'Custom' } },
       { id: 'experience_level', label: 'Experience Level', type: 'select', options: ['Virgin/Inexperienced', 'Novice', 'Experienced', 'Very Experienced', 'Expert/Legendary'] },
-      { id: 'body_confidence', label: 'Body Confidence', type: 'range', min: 0, max: 100, default: 50 },
       { id: 'intimacy_style', label: 'Intimacy Style', type: 'select', options: ['Gentle & Tender', 'Passionate & Intense', 'Rough & Dominant', 'Playful & Teasing', 'Clinical & Detached', 'Animalistic', 'Romantic'] },
       { id: 'attire', label: 'Intimate Attire', type: 'select', options: ['Grey Sweatpants (Shirtless)', 'Boxer Briefs', 'Boxers', 'Briefs', 'Thong', 'G-String', 'Jockstrap', 'Athletic Cup & Straps', 'Speedo / Swim Briefs', 'Compression Shorts', 'Bike Shorts', 'Lace Teddy', 'Babydoll & Panties', 'Corset & Stockings', 'Bodystocking', 'Maid Outfit', 'Nurse / Clinical Fantasy', 'Latex Suit / Catsuit', 'Leather Harness & Cuffs', 'Harness Only', 'Open Robe / Kimono', 'Silk Robe', 'Satin Pajama Set', 'Unbuttoned Flannel', 'White Towel', 'Sarong / Wrap', 'Tactical Gear (Sleeveless)', 'Nothing / Nude', 'Custom'] },
       { id: 'attire_custom', label: 'Custom Intimate Attire', type: 'text', placeholder: 'Describe outfit, fabrics, cut, accessories...', conditional: { field: 'attire', value: 'Custom' } },
+      { id: 'body_confidence', label: 'Body Confidence', type: 'range', min: 0, max: 100, default: 50 },
     ]
   },
 }

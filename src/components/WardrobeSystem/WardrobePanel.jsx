@@ -1,20 +1,46 @@
 import React, { useState } from 'react'
 import {
-  Shirt, Plus, Trash2, Wand2, Download, Shuffle, ChevronDown, X, Maximize2
+  Shirt, Plus, Trash2, Wand2, Download, Shuffle, X, Maximize2
 } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { generateImage as callGenerateImage, buildImagePrompt } from '../../utils/api'
 import { getImageEndpointForModel } from '../../utils/models'
 import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
-import { ART_STYLES, LIGHTING_OPTIONS } from '../../data/schemas'
-import { downloadImage, base64ToDataUrl, generateId } from '../../utils/imageUtils'
+import { downloadImage, base64ToDataUrl } from '../../utils/imageUtils'
 
 const OUTFIT_CATEGORIES = {
-  top: ['None/Shirtless', 'T-Shirt', 'Button-Up Shirt', 'Hoodie', 'Tank Top', 'Leather Jacket', 'Blazer', 'Sweater', 'Crop Top', 'Vest', 'Tactical Vest', 'Armor Plate', 'Robe', 'Flannel (Unbuttoned)', 'Corset', 'Cape/Cloak'],
-  bottom: ['Jeans', 'Cargo Pants', 'Sweatpants', 'Shorts', 'Leather Pants', 'Dress Pants', 'Skirt', 'Kilt', 'Armor Greaves', 'Daisy Dukes', 'Compression Shorts', 'Loincloth', 'Sarong'],
-  footwear: ['Barefoot', 'Boots (Combat)', 'Boots (Cowboy)', 'Sneakers', 'Dress Shoes', 'Sandals', 'Armored Boots', 'High Heels', 'Platform Boots'],
-  accessories: ['None', 'Dog Tags', 'Sword/Weapon', 'Backpack', 'Glasses/Goggles', 'Hat/Helmet', 'Belt & Holster', 'Jewelry/Rings', 'Scarf/Bandana', 'Watch', 'Piercings', 'Crown/Tiara', 'Wrist Guards'],
+  top: ['None/Shirtless', 'T-Shirt', 'Button-Up Shirt', 'Hoodie', 'Tank Top', 'Leather Jacket', 'Blazer', 'Sweater', 'Crop Top', 'Vest', 'Tactical Vest', 'Armor Plate', 'Robe', 'Flannel (Unbuttoned)', 'Corset', 'Cape/Cloak', 'Custom'],
+  bottom: ['Jeans', 'Cargo Pants', 'Sweatpants', 'Shorts', 'Leather Pants', 'Dress Pants', 'Skirt', 'Kilt', 'Armor Greaves', 'Daisy Dukes', 'Compression Shorts', 'Loincloth', 'Sarong', 'Custom'],
+  footwear: ['Barefoot', 'Boots (Combat)', 'Boots (Cowboy)', 'Sneakers', 'Dress Shoes', 'Sandals', 'Armored Boots', 'High Heels', 'Platform Boots', 'Custom'],
+  accessories: ['None', 'Dog Tags', 'Sword/Weapon', 'Backpack', 'Glasses/Goggles', 'Hat/Helmet', 'Belt & Holster', 'Jewelry/Rings', 'Scarf/Bandana', 'Watch', 'Piercings', 'Crown/Tiara', 'Wrist Guards', 'Custom'],
+}
+
+function customStateKey(category) {
+  return `custom${category.charAt(0).toUpperCase()}${category.slice(1)}`
+}
+
+/** Resolved display / prompt value for one wardrobe category (handles Custom + stored outfits). */
+function resolvedOutfitCategory(outfit, category) {
+  const raw = outfit[category]
+  if (!raw) return ''
+  if (raw === 'Custom') return (outfit[customStateKey(category)] || '').trim()
+  return String(raw)
+}
+
+function createEmptyNewOutfit() {
+  return {
+    name: '',
+    top: '',
+    bottom: '',
+    footwear: '',
+    accessories: '',
+    styleTag: 'Casual',
+    customTop: '',
+    customBottom: '',
+    customFootwear: '',
+    customAccessories: '',
+  }
 }
 
 const STYLE_TAGS = ['Casual', 'Formal', 'Combat', 'Fantasy', 'Cyberpunk', 'Fetish/Leather', 'Athletic', 'Punk/Goth', 'Military', 'Western', 'Business', 'Swimwear', 'Sleepwear', 'Ceremonial']
@@ -22,7 +48,6 @@ const STYLE_TAGS = ['Casual', 'Formal', 'Combat', 'Fantasy', 'Cyberpunk', 'Fetis
 export default function WardrobePanel() {
   const character = useCharacterStore(s => s.character)
   const apiKey = useCharacterStore(s => s.apiKey)
-  const selectedImageModel = useCharacterStore(s => s.selectedImageModel)
   const availableImageModels = useCharacterStore(s => s.availableImageModels)
   const wardrobe = useCharacterStore(s => s.wardrobe)
   const addOutfit = useCharacterStore(s => s.addOutfit)
@@ -34,15 +59,7 @@ export default function WardrobePanel() {
   const [generatingId, setGeneratingId] = useState(null)
   const [fullscreenImage, setFullscreenImage] = useState(null)
 
-  // New outfit form state
-  const [newOutfit, setNewOutfit] = useState({
-    name: '',
-    top: '',
-    bottom: '',
-    footwear: '',
-    accessories: '',
-    styleTag: 'Casual',
-  })
+  const [newOutfit, setNewOutfit] = useState(createEmptyNewOutfit)
 
   const handleAddOutfit = () => {
     if (!newOutfit.name) {
@@ -55,7 +72,7 @@ export default function WardrobePanel() {
       image: null,
     })
 
-    setNewOutfit({ name: '', top: '', bottom: '', footwear: '', accessories: '', styleTag: 'Casual' })
+    setNewOutfit(createEmptyNewOutfit())
     setShowNewForm(false)
     addToast('Outfit added to wardrobe!', 'success')
   }
@@ -69,28 +86,51 @@ export default function WardrobePanel() {
     setGeneratingId(outfit.id)
 
     try {
-      // Build outfit-specific prompt
+      const finalTop = resolvedOutfitCategory(outfit, 'top')
+      const finalBottom = resolvedOutfitCategory(outfit, 'bottom')
+      const finalFootwear = resolvedOutfitCategory(outfit, 'footwear')
+      const finalAccessories = resolvedOutfitCategory(outfit, 'accessories')
+
       const outfitDescription = [
-        outfit.top && `Top: ${outfit.top}`,
-        outfit.bottom && `Bottom: ${outfit.bottom}`,
-        outfit.footwear && `Footwear: ${outfit.footwear}`,
-        outfit.accessories && outfit.accessories !== 'None' && `Accessories: ${outfit.accessories}`,
-      ].filter(Boolean).join('. ')
+        finalTop && `Top: ${finalTop}`,
+        finalBottom && `Bottom: ${finalBottom}`,
+        finalFootwear && `Footwear: ${finalFootwear}`,
+        outfit.accessories &&
+          outfit.accessories !== 'None' &&
+          (outfit.accessories !== 'Custom' || finalAccessories) &&
+          `Accessories: ${outfit.accessories === 'Custom' ? finalAccessories : outfit.accessories}`,
+      ]
+        .filter(Boolean)
+        .join('. ')
+
+      const namedLook = `Outfit "${outfit.name}" (${outfit.styleTag || 'Casual'})`
+      const fullAttire = [namedLook, outfitDescription].filter(Boolean).join('. ')
 
       const charWithOutfit = {
         ...character,
-        attire: outfitDescription,
+        attire: fullAttire,
       }
 
-      const prompt = buildImagePrompt(charWithOutfit, 'outfit', {})
+      const basePrompt = buildImagePrompt(charWithOutfit, 'outfit', {})
+      const prompt = outfitDescription
+        ? `${basePrompt} Outfit requirements (match exactly): ${outfitDescription}.`
+        : basePrompt
+
+      const { selectedImageModel: storeImageModel, generatedImages } = useCharacterStore.getState()
+      const modelId = storeImageModel || DEFAULT_IMAGE_MODEL
+      const referenceImageBase64 =
+        modelId === 'gemini-3-flash-image' && generatedImages?.mannequin
+          ? generatedImages.mannequin
+          : null
 
       const base64 = await callGenerateImage(apiKey, prompt, {
         aspectRatio: '3:4',
-        modelId: selectedImageModel || DEFAULT_IMAGE_MODEL,
+        modelId,
         imageEndpoint:
           availableImageModels.length > 0
-            ? getImageEndpointForModel(availableImageModels, selectedImageModel)
+            ? getImageEndpointForModel(availableImageModels, storeImageModel)
             : 'predict',
+        ...(referenceImageBase64 ? { referenceImageBase64 } : {}),
       })
 
       updateOutfit(outfit.id, { image: base64 })
@@ -104,12 +144,14 @@ export default function WardrobePanel() {
 
   const handleRandomOutfit = () => {
     const randomFrom = (arr) => arr[Math.floor(Math.random() * arr.length)]
+    const presetsOnly = (arr) => arr.filter((o) => o !== 'Custom')
     setNewOutfit({
+      ...createEmptyNewOutfit(),
       name: `Look #${wardrobe.length + 1}`,
-      top: randomFrom(OUTFIT_CATEGORIES.top),
-      bottom: randomFrom(OUTFIT_CATEGORIES.bottom),
-      footwear: randomFrom(OUTFIT_CATEGORIES.footwear),
-      accessories: randomFrom(OUTFIT_CATEGORIES.accessories),
+      top: randomFrom(presetsOnly(OUTFIT_CATEGORIES.top)),
+      bottom: randomFrom(presetsOnly(OUTFIT_CATEGORIES.bottom)),
+      footwear: randomFrom(presetsOnly(OUTFIT_CATEGORIES.footwear)),
+      accessories: randomFrom(presetsOnly(OUTFIT_CATEGORIES.accessories)),
       styleTag: randomFrom(STYLE_TAGS),
     })
     setShowNewForm(true)
@@ -164,19 +206,44 @@ export default function WardrobePanel() {
                 {STYLE_TAGS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            {Object.entries(OUTFIT_CATEGORIES).map(([category, options]) => (
-              <div key={category}>
-                <label className="section-heading mb-1 block capitalize">{category}</label>
-                <select
-                  value={newOutfit[category] || ''}
-                  onChange={e => setNewOutfit({ ...newOutfit, [category]: e.target.value })}
-                  className="input-field w-full"
-                >
-                  <option value="">Select...</option>
-                  {options.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
-              </div>
-            ))}
+            {Object.entries(OUTFIT_CATEGORIES).map(([category, options]) => {
+              const customKey = customStateKey(category)
+              return (
+                <div key={category}>
+                  <label className="section-heading mb-1 block capitalize">{category}</label>
+                  <select
+                    value={newOutfit[category] || ''}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setNewOutfit((prev) => ({
+                        ...prev,
+                        [category]: v,
+                        ...(v !== 'Custom' ? { [customKey]: '' } : {}),
+                      }))
+                    }}
+                    className="input-field w-full"
+                  >
+                    <option value="">Select...</option>
+                    {options.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                  {newOutfit[category] === 'Custom' && (
+                    <input
+                      type="text"
+                      value={newOutfit[customKey] || ''}
+                      onChange={(e) =>
+                        setNewOutfit({ ...newOutfit, [customKey]: e.target.value })
+                      }
+                      placeholder={`Describe ${category}...`}
+                      className="input-field w-full mt-2"
+                    />
+                  )}
+                </div>
+              )
+            })}
           </div>
 
           <button onClick={handleAddOutfit} className="btn-primary w-full flex items-center justify-center gap-2">
@@ -277,10 +344,38 @@ function OutfitCard({ outfit, isGenerating, onGenerate, onDelete, onDownload, on
         </div>
 
         <div className="text-xs text-slate-500 space-y-0.5">
-          {outfit.top && <p>Top: {outfit.top}</p>}
-          {outfit.bottom && <p>Bottom: {outfit.bottom}</p>}
-          {outfit.footwear && <p>Feet: {outfit.footwear}</p>}
-          {outfit.accessories && outfit.accessories !== 'None' && <p>Acc: {outfit.accessories}</p>}
+          {outfit.top && (
+            <p>
+              Top:{' '}
+              {outfit.top === 'Custom'
+                ? resolvedOutfitCategory(outfit, 'top') || 'Custom'
+                : outfit.top}
+            </p>
+          )}
+          {outfit.bottom && (
+            <p>
+              Bottom:{' '}
+              {outfit.bottom === 'Custom'
+                ? resolvedOutfitCategory(outfit, 'bottom') || 'Custom'
+                : outfit.bottom}
+            </p>
+          )}
+          {outfit.footwear && (
+            <p>
+              Feet:{' '}
+              {outfit.footwear === 'Custom'
+                ? resolvedOutfitCategory(outfit, 'footwear') || 'Custom'
+                : outfit.footwear}
+            </p>
+          )}
+          {outfit.accessories && outfit.accessories !== 'None' && (
+            <p>
+              Acc:{' '}
+              {outfit.accessories === 'Custom'
+                ? resolvedOutfitCategory(outfit, 'accessories') || 'Custom'
+                : outfit.accessories}
+            </p>
+          )}
         </div>
 
         <div className="flex gap-2">

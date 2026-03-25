@@ -21,7 +21,7 @@ const ICON_MAP = {
 }
 
 const SPECIAL_TABS = [
-  { id: 'generate', icon: Sparkles, label: 'Generate Images', color: 'purple' },
+  { id: 'generate', icon: Sparkles, label: 'Generation Studio', color: 'purple' },
   { id: 'analyze', icon: Upload, label: 'Analyze Image', color: 'pink' },
   { id: 'wardrobe', icon: Shirt, label: 'Wardrobe', color: 'amber' },
   { id: 'library', icon: BookMarked, label: 'Library', color: 'emerald' },

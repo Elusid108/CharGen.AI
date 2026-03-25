@@ -296,6 +296,19 @@ export const selectAttractionTypeOptions = [
   'No fixed physical type',
 ]
 
+export const selectIntimidatedByOptions = [
+  'Authority figures / uniforms',
+  'Physical size and presence',
+  'Cold intellect / scrutiny',
+  'Crowds and public attention',
+  'Sudden loud noise or chaos',
+  'Unresolved anger in others',
+  'Wealth and social power',
+  'Physical intimacy itself',
+  'Competence they cannot match',
+  'Nothing easily rattles them',
+]
+
 export const randomGoals = [
   'To find the six-fingered man who killed my father',
   'To pay off the massive debt I inherited',

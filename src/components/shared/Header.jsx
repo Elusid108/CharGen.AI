@@ -5,7 +5,7 @@ import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 
 const SPECIAL_TITLES = {
-  generate: 'Image Generation',
+  generate: 'Generation Studio',
   analyze: 'Image Analysis',
   wardrobe: 'Wardrobe & Outfits',
   library: 'Character Library',

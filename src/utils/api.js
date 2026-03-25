@@ -207,6 +207,22 @@ function extractInlineImageBase64(data) {
   throw new Error('No image data in model response (unexpected response shape).')
 }
 
+/** Raw base64 + mime for Gemini inlineData; strips data URL prefix when present. */
+function parseReferenceImageForGemini(referenceImageBase64) {
+  const s = String(referenceImageBase64 ?? '').trim()
+  if (!s) return null
+  if (s.startsWith('data:')) {
+    const comma = s.indexOf(',')
+    if (comma === -1) return null
+    const meta = s.slice(5, comma)
+    const mimeType = meta.split(';')[0]?.trim() || 'image/png'
+    const data = s.slice(comma + 1).replace(/\s/g, '')
+    return data ? { mimeType, data } : null
+  }
+  const data = s.replace(/\s/g, '')
+  return data ? { mimeType: 'image/png', data } : null
+}
+
 // --- Image Generation (Imagen predict or Gemini generateContent) ---
 
 export async function generateImage(apiKey, prompt, options = {}) {
@@ -215,13 +231,31 @@ export async function generateImage(apiKey, prompt, options = {}) {
     negativePrompt = '',
     modelId = DEFAULT_IMAGE_MODEL,
     imageEndpoint = 'predict',
+    referenceImageBase64 = null,
   } = options
 
   if (imageEndpoint === 'generateContent') {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`
 
+    const parts = []
+    if (
+      referenceImageBase64 &&
+      modelId === 'gemini-3-flash-image'
+    ) {
+      const ref = parseReferenceImageForGemini(referenceImageBase64)
+      if (ref) {
+        parts.push({
+          inlineData: {
+            mimeType: ref.mimeType,
+            data: ref.data,
+          },
+        })
+      }
+    }
+    parts.push({ text: prompt })
+
     const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts }],
       generationConfig: {
         responseModalities: ['IMAGE'],
         imageConfig: { aspectRatio },
