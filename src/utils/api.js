@@ -329,10 +329,7 @@ export async function generateImage(apiKey, prompt, options = {}) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`
 
     const parts = []
-    if (
-      referenceImageBase64 &&
-      modelId === 'gemini-3-flash-image'
-    ) {
+    if (referenceImageBase64) {
       const ref = parseReferenceImageForGemini(referenceImageBase64)
       if (ref) {
         parts.push({

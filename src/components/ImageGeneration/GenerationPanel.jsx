@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import {
   Image, User, RotateCcw, Shirt, Camera, Download, Maximize2,
-  ChevronDown, Wand2, PenLine, BookOpen, X
+  ChevronDown, PenLine, BookOpen, X, Layers,
 } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
@@ -52,6 +52,7 @@ export default function GenerationPanel() {
   const [mood, setMood] = useState('')
   const [negativePrompt, setNegativePrompt] = useState('')
   const [generatingTypes, setGeneratingTypes] = useState(new Set())
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false)
   const [fullscreenImage, setFullscreenImage] = useState(null)
 
   // Story generation state
@@ -71,10 +72,16 @@ export default function GenerationPanel() {
     ...extra,
   })
 
-  const handleGenerateImage = async (imageType) => {
+  /**
+   * @param {string} imageType
+   * @param {{ batchReferenceBase64?: string | null, ignoreStoredMannequinReference?: boolean }} [options]
+   * @returns {Promise<string | null>} base64 on success, null on failure or missing API key
+   */
+  const handleGenerateImage = async (imageType, options = {}) => {
+    const { batchReferenceBase64, ignoreStoredMannequinReference = false } = options
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
-      return
+      return null
     }
 
     setGeneratingTypes(prev => new Set([...prev, imageType]))
@@ -85,12 +92,17 @@ export default function GenerationPanel() {
       })
 
       const modelId = selectedImageModel || DEFAULT_IMAGE_MODEL
-      const referenceImageBase64 =
+      let referenceImageBase64 = null
+      if (batchReferenceBase64 && modelId === 'gemini-3-flash-image') {
+        referenceImageBase64 = batchReferenceBase64
+      } else if (
+        !ignoreStoredMannequinReference &&
         modelId === 'gemini-3-flash-image' &&
         imageType !== 'mannequin' &&
         generatedImages?.mannequin
-          ? generatedImages.mannequin
-          : null
+      ) {
+        referenceImageBase64 = generatedImages.mannequin
+      }
 
       const base64 = await callGenerateImage(apiKey, prompt, imageModelOptions({
         aspectRatio: typeConfig.ratio,
@@ -100,8 +112,10 @@ export default function GenerationPanel() {
 
       setGeneratedImage(imageType, base64)
       addToast(`${typeConfig.label} generated successfully!`, 'success')
+      return base64
     } catch (e) {
       addToast(`${imageType}: ${e.message}`, 'error', 5000)
+      return null
     } finally {
       setGeneratingTypes(prev => {
         const next = new Set(prev)
@@ -111,15 +125,24 @@ export default function GenerationPanel() {
     }
   }
 
-  const handleGenerateAllImages = async () => {
+  const handleGenerateAll = async () => {
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
       return
     }
 
-    // Fire all 4 image generations simultaneously
-    const promises = IMAGE_TYPES.map(type => handleGenerateImage(type.id))
-    await Promise.allSettled(promises)
+    setIsGeneratingAll(true)
+    try {
+      const anchorImage = await handleGenerateImage('profile', {
+        ignoreStoredMannequinReference: true,
+      })
+      const refOpts = anchorImage ? { batchReferenceBase64: anchorImage } : {}
+      await handleGenerateImage('fullbody', refOpts)
+      await handleGenerateImage('tpose', refOpts)
+      await handleGenerateImage('mannequin', refOpts)
+    } finally {
+      setIsGeneratingAll(false)
+    }
   }
 
   const handleGenerateStory = async () => {
@@ -195,14 +218,15 @@ export default function GenerationPanel() {
         </div>
 
         <button
-          onClick={handleGenerateAllImages}
-          disabled={isAnyGenerating}
+          type="button"
+          onClick={handleGenerateAll}
+          disabled={isGeneratingAll || isAnyGenerating}
           className="btn-generate w-full flex items-center justify-center gap-2"
         >
-          {isAnyGenerating ? (
+          {isGeneratingAll || isAnyGenerating ? (
             <><div className="loader" /> Generating {generatingTypes.size} image{generatingTypes.size !== 1 ? 's' : ''}...</>
           ) : (
-            <><Wand2 size={18} /> Generate All Images</>
+            <><Layers size={18} /> Generate All Images</>
           )}
         </button>
       </div>
