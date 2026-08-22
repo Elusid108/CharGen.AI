@@ -6,6 +6,11 @@ import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from './modelConstants'
 import { CHARACTER_SECTIONS } from '../data/schemas'
 import { BODY_LOCK_IMAGE_TYPES } from './imageGeneration'
 import { inferImageMime } from './imageUtils'
+import {
+  buildStoryBible,
+  includeAdultInStoryBible,
+  LENS_INSTRUCTIONS,
+} from './storyBible'
 
 // --- Text Generation (Gemini) ---
 
@@ -15,6 +20,41 @@ export async function generateText(apiKey, systemInstruction, userPrompt, option
 
   const payload = {
     contents: [{ parts: [{ text: userPrompt }] }],
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    generationConfig: { temperature },
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  const data = await response.json()
+
+  if (data.error) {
+    throw new Error(`Gemini Error: ${data.error.message}`)
+  }
+
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+  if (!text) throw new Error('No text returned from Gemini')
+
+  return text
+}
+
+/**
+ * Multi-turn chat completion (Gemini contents[] + system instruction).
+ * @param {string} apiKey
+ * @param {string} systemInstruction
+ * @param {{ role: string, parts: unknown[] }[]} contents
+ * @param {{ temperature?: number, modelId?: string }} [options]
+ */
+export async function generateChatReply(apiKey, systemInstruction, contents, options = {}) {
+  const { temperature = 0.85, modelId = DEFAULT_TEXT_MODEL } = options
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`
+
+  const payload = {
+    contents,
     systemInstruction: { parts: [{ text: systemInstruction }] },
     generationConfig: { temperature },
   }
@@ -760,38 +800,91 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
 
 // --- Backstory Generation ---
 
+export async function generateNarrativeHooks(apiKey, character, options = {}) {
+  const { tone = 'Simple', genre = 'High Fantasy', lensId = 'wanted', modelId } = options
+  const bible = buildStoryBible(character, { includeAdult: includeAdultInStoryBible(tone) })
+  const lens = LENS_INSTRUCTIONS[lensId] || LENS_INSTRUCTIONS.wanted
+
+  const systemInstruction = `You invent three distinct story hooks for one character. Output JSON only.
+
+Rules:
+- Return a single JSON object: { "hooks": ["...", "...", "..."] } with exactly three strings.
+- Each hook is ONE sentence. No titles, no numbering inside the strings.
+- The three hooks must be different angles, not paraphrases.
+- Do not name MBTI, Enneagram, alignment, or OCEAN.
+- Do not start with "Born in", "From a young age", "But everything changed when", or "They were always".`
+
+  const userPrompt = `Genre: ${genre}. Tone: ${tone}.
+Lens (apply this flavor to the hooks): ${lens}
+
+Story bible (only this — do not invent a full biography):
+${JSON.stringify(bible, null, 2)}`
+
+  const raw = await generateText(apiKey, systemInstruction, userPrompt, {
+    temperature: 1.05,
+    ...(modelId ? { modelId } : {}),
+  })
+  const parsed = parseJsonFromModelText(raw)
+  const hooks = Array.isArray(parsed?.hooks)
+    ? parsed.hooks.map((h) => String(h || '').trim()).filter(Boolean).slice(0, 3)
+    : []
+  if (hooks.length < 3) {
+    throw new Error('Model did not return three story hooks')
+  }
+  return { hooks }
+}
+
 export async function generateBackstory(apiKey, character, options = {}) {
-  const { length = 'Standard Bio', tone = 'Simple', genre = 'High Fantasy', modelId } = options
+  const {
+    length = 'Standard Bio',
+    tone = 'Simple',
+    genre = 'High Fantasy',
+    lensId = 'wanted',
+    selectedHook = '',
+    modelId,
+  } = options
 
-  const characterJson = JSON.stringify(character ?? {}, null, 2)
+  const bible = buildStoryBible(character, { includeAdult: includeAdultInStoryBible(tone) })
+  const lens = LENS_INSTRUCTIONS[lensId] || LENS_INSTRUCTIONS.wanted
 
-  const systemInstruction = `You are an expert storyteller. You receive the complete character as a JSON object (goal, fear, trauma, kinks, MBTI, archetype, OCEAN sliders, physical traits, social patterns, adult themes, etc.). Use that entire object as the authoritative context.
+  const systemInstruction = `You are a fiction writer. You receive a short story bible, not a complete stat block.
 
-Write flowing narrative prose only—never output a stat block, bullet list of attributes, or repeat the JSON.
+Write using ONE wound and ONE want as the spine. Other bible facts may appear only if they complicate that spine. Silence is allowed — do not tour every field.
 
-Prioritize internal psychology, narrative history, goals, fears, trauma, relationships, and voice/movement when they appear in the JSON. Reference demographic and species context where it shapes the story. Use fine-grained body-part slider details only when they clearly matter to appearance, scars, or story logic (otherwise imply broad look through higher-level traits).
+Ban these openings and their cousins: "Born in", "From a young age", "But everything changed when", "They were always".
 
-Every major psychological and narrative field provided should influence the backstory in a coherent, consistent way.
+Write ONE scene (a night, a job, an argument, a rumor) plus a short present-day consequence. This is not a CV, Wikipedia page, or opening chapter that summarizes a life.
 
-CRITICAL: Never explicitly name the psychological frameworks, alignments, or mechanical trait labels in the prose (e.g., NEVER write the words "INTJ", "Enneagram", "Demisexual", or "Lawful Neutral"). Instead, demonstrate these traits purely through the character's actions, worldview, and reactions to their environment.`
+Never name MBTI, Enneagram, alignment labels, or OCEAN. Demonstrate interiority through behavior.
 
-  const userPrompt = `Write a creative character backstory.
+Output a single JSON object only, no markdown:
+{ "backstory": "<prose>", "chatCanon": "<exactly three first-person sentences this character would own as their truth>" }
 
-Length: ${length}.
+chatCanon must be first person, specific, and usable as a chatbot persona. No trait labels.`
+
+  const hookBlock = selectedHook
+    ? `Write from this chosen hook (do not list it; enact it):\n${selectedHook}\n`
+    : ''
+
+  const userPrompt = `${hookBlock}Length: ${length}.
 Tone/Style: ${tone}.
 Genre: ${genre}.
+${lens}
 
-Complete character (JSON—use as sole canonical context):
-${characterJson}
+Story bible:
+${JSON.stringify(bible, null, 2)}`
 
-Instructions:
-1. Output prose only; do not echo or enumerate the JSON keys.
-2. Weave goal, fear, trauma, desires, lies, virtues, vices, alignment, MBTI, enneagram, archetype, and social traits into a single coherent history and present condition.
-3. Use sensory and behavioral texture (voice, gait, scent, aura) when those fields are present.
-4. Adult-section fields are part of character truth where relevant; keep tone aligned with the requested genre and tone.
-5. Make it feel like the opening chapter of their story.`
-
-  return generateText(apiKey, systemInstruction, userPrompt, { temperature: 1.1, ...(modelId ? { modelId } : {}) })
+  const raw = await generateText(apiKey, systemInstruction, userPrompt, {
+    temperature: 1.15,
+    ...(modelId ? { modelId } : {}),
+  })
+  const parsed = parseJsonFromModelText(raw)
+  const backstory = String(parsed?.backstory || '').trim()
+  const chatCanon = String(parsed?.chatCanon || '').trim()
+  if (!backstory) {
+    throw new Error('Model did not return a backstory')
+  }
+  return { backstory, chatCanon }
 }
 
 // --- Image Analysis Prompt ---

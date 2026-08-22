@@ -23,6 +23,7 @@ const ICON_MAP = {
 
 const SPECIAL_TABS = [
   { id: 'generate', icon: Sparkles, label: 'Generation Studio', color: 'purple' },
+  { id: 'chat', icon: MessagesSquare, label: 'Chat', color: 'cyan' },
   { id: 'wardrobe', icon: Shirt, label: 'Wardrobe', color: 'amber' },
   { id: 'library', icon: BookMarked, label: 'Library', color: 'emerald' },
 ]
@@ -45,6 +46,7 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
       useCharacterStore.setState({
         generatedImages: compressed.generatedImages,
         wardrobe: compressed.wardrobe,
+        ...(compressed.chat ? { chat: compressed.chat } : {}),
       })
       addToast('Character saved to library!', 'success')
     } catch (e) {
@@ -130,6 +132,7 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
             pink: isActive ? 'bg-slate-800/80 text-pink-400 border-pink-500' : '',
             amber: isActive ? 'bg-slate-800/80 text-amber-400 border-amber-500' : '',
             emerald: isActive ? 'bg-slate-800/80 text-emerald-400 border-emerald-500' : '',
+            cyan: isActive ? 'bg-slate-800/80 text-cyan-400 border-cyan-500' : '',
           }
           return (
             <button

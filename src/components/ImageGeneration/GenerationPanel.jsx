@@ -1,11 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Image, User, RotateCcw, Shirt, Camera, Download, Maximize2,
   PenLine, BookOpen, X, Layers, LayoutGrid,
 } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
-import { generateImage as callGenerateImage, buildImagePrompt, generateBackstory as callGenerateBackstory } from '../../utils/api'
+import { generateImage as callGenerateImage, buildImagePrompt, generateBackstory as callGenerateBackstory, generateNarrativeHooks } from '../../utils/api'
 import { getImageEndpointForModel } from '../../utils/models'
 import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
 import {
@@ -14,6 +14,7 @@ import {
   mergeNegativePrompt,
 } from '../../utils/imageGeneration'
 import { ART_STYLES, LIGHTING_OPTIONS, MOOD_OPTIONS } from '../../data/schemas'
+import { NARRATIVE_LENSES, guessGenreFromCharacter, pickNarrativeLens } from '../../utils/storyBible'
 import { downloadImage, base64ToDataUrl, compressImageBase64, inferImageMime, extensionForImageMime } from '../../utils/imageUtils'
 
 const IMAGE_TYPES = [
@@ -54,6 +55,8 @@ export default function GenerationPanel() {
   const setPresentationMode = useCharacterStore(s => s.setPresentationMode)
   const backstory = useCharacterStore(s => s.backstory)
   const setBackstory = useCharacterStore(s => s.setBackstory)
+  const chatCanon = useCharacterStore(s => s.chatCanon)
+  const setChatCanon = useCharacterStore(s => s.setChatCanon)
   const addToast = useToastStore(s => s.addToast)
 
   // Image generation state
@@ -68,10 +71,21 @@ export default function GenerationPanel() {
   // Story generation state
   const [storyLength, setStoryLength] = useState('Standard Bio')
   const [storyTone, setStoryTone] = useState('Simple')
-  const [storyGenre, setStoryGenre] = useState('High Fantasy')
+  const [storyGenre, setStoryGenre] = useState(() => guessGenreFromCharacter(useCharacterStore.getState().character))
+  const [genreTouched, setGenreTouched] = useState(false)
+  const [storyLens, setStoryLens] = useState('random')
+  const [hooksFirst, setHooksFirst] = useState(false)
+  const [storyHooks, setStoryHooks] = useState([])
+  const [lastLensUsed, setLastLensUsed] = useState('')
   const [generatingStory, setGeneratingStory] = useState(false)
+  const [generatingHooks, setGeneratingHooks] = useState(false)
 
   const isAnyGenerating = generatingTypes.size > 0
+
+  useEffect(() => {
+    if (genreTouched) return
+    setStoryGenre(guessGenreFromCharacter(character))
+  }, [character.species, character.origin, character.origin_custom, genreTouched])
 
   const imageModelOptions = (extra = {}) => ({
     modelId: selectedImageModel || DEFAULT_IMAGE_MODEL,
@@ -158,22 +172,69 @@ export default function GenerationPanel() {
     }
   }
 
+  const writeBackstory = async (selectedHook = '') => {
+    const lensId = pickNarrativeLens(storyLens)
+    setLastLensUsed(lensId)
+    const result = await callGenerateBackstory(apiKey, character, {
+      length: storyLength,
+      tone: storyTone,
+      genre: storyGenre,
+      lensId,
+      selectedHook,
+      modelId: selectedTextModel,
+    })
+    setBackstory(result.backstory)
+    if (result.chatCanon) setChatCanon(result.chatCanon)
+    addToast('Backstory generated!', 'success')
+  }
+
   const handleGenerateStory = async () => {
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
       return
     }
 
+    if (hooksFirst && storyHooks.length === 0) {
+      setGeneratingHooks(true)
+      try {
+        const lensId = pickNarrativeLens(storyLens)
+        setLastLensUsed(lensId)
+        const { hooks } = await generateNarrativeHooks(apiKey, character, {
+          tone: storyTone,
+          genre: storyGenre,
+          lensId,
+          modelId: selectedTextModel,
+        })
+        setStoryHooks(hooks)
+        addToast('Pick a hook, then we write from it.', 'info')
+      } catch (e) {
+        addToast('Hook generation failed: ' + e.message, 'error', 5000)
+      } finally {
+        setGeneratingHooks(false)
+      }
+      return
+    }
+
     setGeneratingStory(true)
     try {
-      const text = await callGenerateBackstory(apiKey, character, {
-        length: storyLength,
-        tone: storyTone,
-        genre: storyGenre,
-        modelId: selectedTextModel,
-      })
-      setBackstory(text)
-      addToast('Backstory generated!', 'success')
+      await writeBackstory()
+      setStoryHooks([])
+    } catch (e) {
+      addToast('Story generation failed: ' + e.message, 'error', 5000)
+    } finally {
+      setGeneratingStory(false)
+    }
+  }
+
+  const handleWriteFromHook = async (hook) => {
+    if (!apiKey) {
+      addToast('Please set your API key in Settings first.', 'warning')
+      return
+    }
+    setGeneratingStory(true)
+    try {
+      await writeBackstory(hook)
+      setStoryHooks([])
     } catch (e) {
       addToast('Story generation failed: ' + e.message, 'error', 5000)
     } finally {
@@ -314,7 +375,7 @@ export default function GenerationPanel() {
           Narrative Engine
         </h3>
 
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           <div>
             <label className="section-heading mb-1 block">Length</label>
             <select value={storyLength} onChange={e => setStoryLength(e.target.value)} className="input-field w-full text-xs">
@@ -329,7 +390,14 @@ export default function GenerationPanel() {
           </div>
           <div>
             <label className="section-heading mb-1 block">Genre</label>
-            <select value={storyGenre} onChange={e => setStoryGenre(e.target.value)} className="input-field w-full text-xs">
+            <select
+              value={storyGenre}
+              onChange={e => {
+                setGenreTouched(true)
+                setStoryGenre(e.target.value)
+              }}
+              className="input-field w-full text-xs"
+            >
               <option value="High Fantasy">High Fantasy</option>
               <option value="Sci-Fi">Sci-Fi</option>
               <option value="Cyberpunk">Cyberpunk</option>
@@ -340,28 +408,81 @@ export default function GenerationPanel() {
               <option value="Noir">Noir/Crime</option>
             </select>
           </div>
+          <div>
+            <label className="section-heading mb-1 block">Lens</label>
+            <select value={storyLens} onChange={e => setStoryLens(e.target.value)} className="input-field w-full text-xs">
+              {NARRATIVE_LENSES.map((lens) => (
+                <option key={lens.id} value={lens.id}>{lens.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
+        <label className="flex items-center gap-2 text-xs text-slate-400 mb-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={hooksFirst}
+            onChange={(e) => {
+              setHooksFirst(e.target.checked)
+              if (!e.target.checked) setStoryHooks([])
+            }}
+          />
+          Generate hooks first (pick one, then write)
+        </label>
+
+        {lastLensUsed && (
+          <p className="text-[11px] text-slate-500 mb-3">
+            Last lens: {NARRATIVE_LENSES.find((l) => l.id === lastLensUsed)?.label || lastLensUsed}
+          </p>
+        )}
+
+        {storyHooks.length > 0 && (
+          <div className="space-y-2 mb-4">
+            <p className="text-xs text-slate-400">Pick a hook to write from:</p>
+            {storyHooks.map((hook, i) => (
+              <button
+                key={i}
+                type="button"
+                disabled={generatingStory}
+                onClick={() => void handleWriteFromHook(hook)}
+                className="w-full text-left text-sm p-3 rounded-lg border border-slate-700 bg-slate-950 text-slate-300 hover:border-purple-500/50 hover:bg-slate-900 disabled:opacity-50"
+              >
+                {hook}
+              </button>
+            ))}
+          </div>
+        )}
+
         <button
+          type="button"
           onClick={handleGenerateStory}
-          disabled={generatingStory}
+          disabled={generatingStory || generatingHooks}
           className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg transition-colors mb-4 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {generatingStory ? (
-            <><div className="loader" /> Writing...</>
+          {generatingStory || generatingHooks ? (
+            <><div className="loader" /> {generatingHooks ? 'Inventing hooks...' : 'Writing...'}</>
+          ) : hooksFirst && storyHooks.length === 0 ? (
+            <><BookOpen size={16} /> Generate Hooks</>
           ) : (
             <><BookOpen size={16} /> Generate Backstory</>
           )}
         </button>
 
-        <div
-          className="bg-slate-950 p-4 rounded-lg min-h-[200px] text-sm text-slate-300 leading-relaxed whitespace-pre-wrap border border-slate-800 focus:border-purple-500 focus:outline-none"
-          contentEditable
-          suppressContentEditableWarning
-          onBlur={e => setBackstory(e.target.innerText)}
-          dangerouslySetInnerHTML={{
-            __html: backstory || '<span class="text-slate-600 italic">Backstory will appear here. You can also type directly...</span>'
-          }}
+        <label className="section-heading mb-1 block">Backstory</label>
+        <textarea
+          value={backstory}
+          onChange={(e) => setBackstory(e.target.value)}
+          placeholder="Backstory will appear here. You can also type directly..."
+          className="input-field w-full min-h-[200px] text-sm text-slate-300 leading-relaxed mb-4 resize-y"
+        />
+
+        <label className="section-heading mb-1 block">Chat canon</label>
+        <p className="text-[11px] text-slate-500 mb-1">Three sentences in their voice. Used by the Chat tab.</p>
+        <textarea
+          value={chatCanon}
+          onChange={(e) => setChatCanon(e.target.value)}
+          placeholder="Short first-person canon for chat..."
+          className="input-field w-full min-h-[88px] text-sm text-slate-300 leading-relaxed resize-y"
         />
       </div>
 

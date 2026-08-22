@@ -7,6 +7,7 @@ import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants
 import { fetchGeminiModels } from '../utils/models'
 import { generateCustomFields } from '../utils/api'
 import { useToastStore } from './useToast'
+import { emptyChatState, normalizeChatState } from '../utils/chatPrompt'
 
 function buildFieldById() {
   const map = {}
@@ -175,7 +176,7 @@ function emptyGeneratedImagesState() {
 }
 
 /**
- * Normalize a library record to schema v2 (front T-pose lock + turnaround slot).
+ * Normalize a library record (v1 lock migrate, v3 chat fields).
  * @param {Record<string, unknown>} saved
  */
 export function migrateSavedCharacter(saved) {
@@ -185,6 +186,8 @@ export function migrateSavedCharacter(saved) {
       presentationMode: 'canonical',
       schemaVersion: CHARACTER_SCHEMA_VERSION,
       attributes: getDefaultCharacter(),
+      chatCanon: '',
+      chat: emptyChatState(),
     }
   }
 
@@ -202,6 +205,8 @@ export function migrateSavedCharacter(saved) {
     presentationMode: saved.presentationMode === 'thirst' ? 'thirst' : 'canonical',
     schemaVersion: CHARACTER_SCHEMA_VERSION,
     attributes: { ...getDefaultCharacter(), ...(saved.attributes || {}) },
+    chatCanon: typeof saved.chatCanon === 'string' ? saved.chatCanon : '',
+    chat: normalizeChatState(saved.chat),
   }
 }
 
@@ -213,8 +218,10 @@ export const useCharacterStore = create((set, get) => ({
   // Generated content
   generatedImages: emptyGeneratedImagesState(),
   backstory: '',
+  chatCanon: '',
   wardrobe: [],
   presentationMode: 'canonical',
+  chat: emptyChatState(),
 
   // API Key
   apiKey: '',
@@ -334,6 +341,57 @@ export const useCharacterStore = create((set, get) => ({
 
   // Set backstory
   setBackstory: (text) => set({ backstory: text }),
+
+  setChatCanon: (text) => set({ chatCanon: typeof text === 'string' ? text : '' }),
+
+  setChat: (chat) => set({ chat: normalizeChatState(chat) }),
+
+  updateChatSettings: (patch) => {
+    set((state) => {
+      const current = normalizeChatState(state.chat)
+      const nextSettings = { ...current.settings, ...(patch || {}) }
+      if (patch?.userPersona) {
+        nextSettings.userPersona = {
+          ...current.settings.userPersona,
+          ...patch.userPersona,
+        }
+      }
+      return { chat: { ...current, settings: nextSettings } }
+    })
+  },
+
+  appendChatTurn: ({ uiMessages, apiMessage }) => {
+    set((state) => {
+      const current = normalizeChatState(state.chat)
+      return {
+        chat: {
+          ...current,
+          ui: uiMessages?.length ? [...current.ui, ...uiMessages] : current.ui,
+          api: apiMessage ? [...current.api, apiMessage] : current.api,
+        },
+      }
+    })
+  },
+
+  replaceChatApiAndUi: ({ ui, api }) => {
+    set((state) => {
+      const current = normalizeChatState(state.chat)
+      return {
+        chat: {
+          ...current,
+          ui: ui ?? current.ui,
+          api: api ?? current.api,
+        },
+      }
+    })
+  },
+
+  clearChat: () => {
+    set((state) => {
+      const current = normalizeChatState(state.chat)
+      return { chat: { ...emptyChatState(), settings: current.settings } }
+    })
+  },
 
   // Wardrobe management
   addOutfit: (outfit) => {
@@ -494,8 +552,10 @@ export const useCharacterStore = create((set, get) => ({
       character: migrated.attributes || getDefaultCharacter(),
       generatedImages: migrated.generatedImages,
       backstory: migrated.backstory || '',
+      chatCanon: migrated.chatCanon || '',
       wardrobe: migrated.wardrobe || [],
       presentationMode: migrated.presentationMode,
+      chat: migrated.chat,
       lockedFields,
     })
   },
@@ -511,8 +571,10 @@ export const useCharacterStore = create((set, get) => ({
       attributes: { ...state.character },
       generatedImages: { ...state.generatedImages },
       backstory: state.backstory,
+      chatCanon: state.chatCanon || '',
       wardrobe: [...state.wardrobe],
       presentationMode: state.presentationMode === 'thirst' ? 'thirst' : 'canonical',
+      chat: normalizeChatState(state.chat),
       metadata: {
         tags: [],
         favorite: false,
@@ -529,8 +591,10 @@ export const useCharacterStore = create((set, get) => ({
       characterId: null,
       generatedImages: emptyGeneratedImagesState(),
       backstory: '',
+      chatCanon: '',
       wardrobe: [],
       presentationMode: 'canonical',
+      chat: emptyChatState(),
       lockedFields: {},
     })
   },

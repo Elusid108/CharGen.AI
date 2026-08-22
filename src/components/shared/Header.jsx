@@ -9,6 +9,7 @@ const SPECIAL_TITLES = {
   analyze: 'Image Analysis',
   wardrobe: 'Wardrobe & Outfits',
   library: 'Character Library',
+  chat: 'Chat',
 }
 
 export default function Header({ currentTab, onToggleSidebar, sidebarOpen }) {

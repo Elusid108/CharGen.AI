@@ -211,7 +211,7 @@ export const CHARACTER_SECTIONS = {
 }
 
 /** Persist this on every library save. Bump when generatedImages or attribute shape changes. */
-export const CHARACTER_SCHEMA_VERSION = 2
+export const CHARACTER_SCHEMA_VERSION = 3
 
 export function emptyGeneratedImages() {
   return {

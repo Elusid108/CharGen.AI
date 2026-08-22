@@ -7,6 +7,7 @@ import GenerationPanel from './components/ImageGeneration/GenerationPanel'
 import ImageAnalysis from './components/ImageAnalysis/ImageAnalysis'
 import WardrobePanel from './components/WardrobeSystem/WardrobePanel'
 import LibraryPanel from './components/Library/LibraryPanel'
+import ChatPanel from './components/Chat/ChatPanel'
 import SettingsPanel from './components/shared/SettingsPanel'
 import ToastContainer from './components/shared/ToastContainer'
 import { useCharacterStore } from './hooks/useCharacter'
@@ -55,23 +56,28 @@ export default function App() {
         />
 
         <div className="flex-1 overflow-hidden flex">
-          {/* Workspace */}
-          <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-32">
-            {isFormTab && (
-              <CharacterForm
-                section={currentTab}
-                onContextChange={setContextInfo}
-              />
-            )}
-            {currentTab === 'generate' && <GenerationPanel />}
-            {currentTab === 'analyze' && <ImageAnalysis />}
-            {currentTab === 'wardrobe' && <WardrobePanel />}
-            {currentTab === 'library' && <LibraryPanel />}
-          </div>
-
-          {/* Context Panel (Desktop) */}
-          {isFormTab && (
-            <ContextPanel contextInfo={contextInfo} />
+          {currentTab === 'chat' ? (
+            <div className="flex-1 overflow-hidden min-w-0">
+              <ChatPanel />
+            </div>
+          ) : (
+            <>
+              <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-32">
+                {isFormTab && (
+                  <CharacterForm
+                    section={currentTab}
+                    onContextChange={setContextInfo}
+                  />
+                )}
+                {currentTab === 'generate' && <GenerationPanel />}
+                {currentTab === 'analyze' && <ImageAnalysis />}
+                {currentTab === 'wardrobe' && <WardrobePanel />}
+                {currentTab === 'library' && <LibraryPanel />}
+              </div>
+              {isFormTab && (
+                <ContextPanel contextInfo={contextInfo} />
+              )}
+            </>
           )}
         </div>
       </main>

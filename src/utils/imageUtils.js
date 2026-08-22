@@ -136,7 +136,19 @@ export async function compressSaveAssets(data) {
       return { ...outfit, image: await compressImageBase64(outfit.image) }
     })
   )
-  return { ...data, generatedImages: images, wardrobe }
+  let chat = data.chat
+  if (chat && Array.isArray(chat.ui)) {
+    chat = {
+      ...chat,
+      ui: await Promise.all(
+        chat.ui.map(async (msg) => {
+          if (!msg?.image) return msg
+          return { ...msg, image: await compressImageBase64(msg.image) }
+        })
+      ),
+    }
+  }
+  return { ...data, generatedImages: images, wardrobe, ...(chat ? { chat } : {}) }
 }
 
 function loadHtmlImage(src) {
