@@ -4,9 +4,9 @@
 
 const DELAY_CAP_MS = 8000
 
-export function stripProtocolTags(raw) {
+export function stripProtocolTags(raw, { photoSent = false } = {}) {
   return String(raw ?? '')
-    .replace(/\[SEND_PIC:\s*[\s\S]*?\]/gi, '*[Sent a photo]*')
+    .replace(/\[SEND_PIC:\s*[\s\S]*?\]/gi, photoSent ? '*[Sent a photo]*' : '')
     .replace(/\[SPLIT\]/gi, '\n\n')
     .replace(/\[DELAY:\s*\d+\s*\]/gi, '')
     .replace(/\n{3,}/g, '\n\n')

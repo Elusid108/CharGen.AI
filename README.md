@@ -1,6 +1,6 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.6.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character.
+**v1.6.1** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character.
 
 ## Features
 
@@ -35,8 +35,9 @@ Old library saves without a lock are migrated: the former 16:9 T-pose sheet beco
 - **Scenes**: strangers, dating match, wrong number, tavern, briefing, interrogation, camp
 - **Heat**: slow-burn, flirty, filthy (Mature fields only when filthy)
 - Replies can use `[SPLIT]` / `[DELAY]` for multiple bubbles and a typing indicator
-- `[SEND_PIC]` generates a selfie from the **T-pose lock**, using Generation Studio’s Canonical/Thirst setting
-- Thread and settings save with the character
+- Photos only if you **ask** (pic / selfie / photo). The image is a candid phone shot, using profile or T-pose for **face identity**, not as the pose
+- **Randomize All** starts a new character: empty thread, new save id, cleared art and backstory
+- Thread and settings save with that character
 
 ### Narrative Engine
 - **Story bible**, not a full-sheet dump: one wound, one want, a scene instead of a CV

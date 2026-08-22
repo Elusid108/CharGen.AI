@@ -145,15 +145,22 @@ export default function ChatPanel() {
       const reply = await generateChatReply(apiKey, systemPrompt, nextApi, {
         modelId: selectedTextModel,
       })
-      const clean = stripProtocolTags(reply) || reply
-      const apiModel = { role: 'model', parts: [{ text: clean }] }
       const blocks = parseReplyBlocks(reply)
       const allowPic = userRecentlyAskedForPhoto(nextApi)
       let uiAcc = nextUi
+      let sentPic = false
+
+      const commit = (photoSent) => {
+        const clean = stripProtocolTags(reply, { photoSent }) || reply
+        replaceChatApiAndUi({
+          ui: uiAcc,
+          api: [...nextApi, { role: 'model', parts: [{ text: clean }] }],
+        })
+      }
 
       if (!blocks.length) {
-        uiAcc = [...uiAcc, { id: generateId(), role: 'model', text: clean }]
-        replaceChatApiAndUi({ ui: uiAcc, api: [...nextApi, apiModel] })
+        uiAcc = [...uiAcc, { id: generateId(), role: 'model', text: stripProtocolTags(reply) || reply }]
+        commit(false)
       } else {
         for (const block of blocks) {
           if (abortRef.current) break
@@ -164,6 +171,7 @@ export default function ChatPanel() {
           let image = null
           if (block.picDescription && allowPic) {
             image = await trySendPic(block.picDescription)
+            if (image) sentPic = true
           }
           uiAcc = [
             ...uiAcc,
@@ -174,7 +182,7 @@ export default function ChatPanel() {
               ...(image ? { image } : {}),
             },
           ]
-          replaceChatApiAndUi({ ui: uiAcc, api: [...nextApi, apiModel] })
+          commit(sentPic)
         }
       }
     } catch (err) {
