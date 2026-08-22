@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useId } from 'react'
 import { ChevronDown, Lock, Unlock } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
+import { normalizeSelectOptions } from '../../data/options'
+import { getRangeBin } from '../../utils/compileCharacter'
 
 export default function FormField({ field, value, onChange, onHover, onSelectOptionHover }) {
   const isWide = field.type === 'range'
@@ -61,10 +63,11 @@ function SelectField({ field, value, onChange, onOptionHover }) {
   const containerRef = useRef(null)
   const buttonRef = useRef(null)
   const listId = useId()
-  const options = field.options
+  const options = normalizeSelectOptions(field.options)
 
-  const selectedIndex = options.findIndex((o) => o === value)
-  const displayLabel = value || 'Select...'
+  const selectedIndex = options.findIndex((o) => o.id === value)
+  const selected = selectedIndex >= 0 ? options[selectedIndex] : null
+  const displayLabel = selected?.label || value || 'Select...'
 
   const closeMenu = () => {
     setIsOpen(false)
@@ -77,7 +80,7 @@ function SelectField({ field, value, onChange, onOptionHover }) {
     const start = selectedIndex >= 0 ? selectedIndex : 0
     setHighlightedIndex(start)
     const opt = options[start]
-    if (opt) onOptionHover?.(opt)
+    if (opt) onOptionHover?.(opt.id)
   }
 
   useEffect(() => {
@@ -104,7 +107,7 @@ function SelectField({ field, value, onChange, onOptionHover }) {
   }, [isOpen, highlightedIndex, listId])
 
   const selectOption = (opt) => {
-    onChange(opt)
+    onChange(opt.id)
     closeMenu()
   }
 
@@ -114,7 +117,7 @@ function SelectField({ field, value, onChange, onOptionHover }) {
     const idx = Math.max(0, Math.min(nextIdx, len - 1))
     setHighlightedIndex(idx)
     const opt = options[idx]
-    if (opt) onOptionHover?.(opt)
+    if (opt) onOptionHover?.(opt.id)
   }
 
   const handleButtonKeyDown = (e) => {
@@ -190,11 +193,11 @@ function SelectField({ field, value, onChange, onOptionHover }) {
           className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-800 py-1 shadow-xl"
         >
           {options.map((opt, index) => {
-            const isSelected = value === opt
+            const isSelected = value === opt.id
             const isHighlighted = highlightedIndex === index
             return (
               <li
-                key={opt}
+                key={opt.id}
                 id={`${listId}-opt-${index}`}
                 role="option"
                 aria-selected={isSelected}
@@ -203,12 +206,12 @@ function SelectField({ field, value, onChange, onOptionHover }) {
                 } ${isSelected && !isHighlighted ? 'bg-slate-800 text-blue-300' : ''}`}
                 onMouseEnter={() => {
                   setHighlightedIndex(index)
-                  onOptionHover?.(opt)
+                  onOptionHover?.(opt.id)
                 }}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => selectOption(opt)}
               >
-                {opt}
+                {opt.label}
               </li>
             )
           })}
@@ -223,6 +226,7 @@ function RangeField({ field, value, onChange }) {
   const max = field.max ?? 100
   const currentValue = value ?? field.default ?? 50
   const percent = ((currentValue - min) / (max - min)) * 100
+  const bin = getRangeBin(field.id, currentValue)
 
   return (
     <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
@@ -230,8 +234,11 @@ function RangeField({ field, value, onChange }) {
         <div className="flex gap-4 text-[10px] text-slate-600 uppercase font-bold tracking-widest">
           <span>Low</span>
         </div>
-        <span className="text-lg font-bold text-blue-400 font-mono">
-          {currentValue}%
+        <span className="text-right">
+          <span className="block text-lg font-bold text-blue-400 font-mono leading-tight">
+            {bin.label}
+          </span>
+          <span className="block text-[10px] text-slate-500 font-mono">{currentValue}%</span>
         </span>
       </div>
       <div className="relative">

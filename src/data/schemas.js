@@ -1,98 +1,113 @@
 /**
  * Unified character attribute schema
- * Combines CharGen, TitanEngine, and PixelForge approaches
- * Each section has fields that render as form inputs
+ * Select `options` are per-field records from src/data/options (id = saved label).
  */
 
-import {
-  selectAttractionTypeOptions,
-  selectIntimidatedByOptions,
-  selectBlemishesOptions,
-  selectDesireOptions,
-  selectDistinguishingFacialOptions,
-  selectFearOptions,
-  selectGoalOptions,
-  selectKinksOptions,
-  selectMoralCodeOptions,
-  selectPrejudiceOptions,
-  selectQuirkOptions,
-  selectScarsOptions,
-  selectSpecialFeaturesOptions,
-  selectTraumaOptions,
-  selectTurnOffsOptions,
-  selectTurnOnsOptions,
-} from './randomPools'
+import { getFieldOptions } from './options'
 
-/** Shared options for granular body-part selects (each field also has a `*_custom` text row). */
-const BODY_PART_DESCRIPTORS = ['Slender', 'Toned', 'Muscular', 'Thick', 'Massive', 'Soft', 'Defined', 'Custom']
+function select(id, label, extra = {}) {
+  return { id, label, type: 'select', options: getFieldOptions(id), ...extra }
+}
+
+function customText(id, label, parentId, placeholder) {
+  return {
+    id,
+    label,
+    type: 'text',
+    placeholder,
+    conditional: { field: parentId, value: 'Custom' },
+  }
+}
 
 export const CHARACTER_SECTIONS = {
   identity: {
     icon: 'Fingerprint',
     label: 'Identity & Species',
-    description: 'Core identity, species, and role.',
+    description: 'Core identity, species, role, and how they make a living.',
     fields: [
       { id: 'name', label: 'Full Name', type: 'text', placeholder: 'E.g., Caelus Vane, Zyx-7, etc.' },
-      { id: 'species', label: 'Species', type: 'select', options: ['Human', 'Humanoid Alien', 'Non-Humanoid Alien', 'Elf', 'Dwarf', 'Orc', 'Demon', 'Angel', 'Undead', 'Android/Cyborg', 'Werewolf/Lycanthrope', 'Vampire', 'Dragon/Draconic', 'Fae/Fairy', 'Elemental', 'Hybrid', 'Custom'] },
-      { id: 'species_custom', label: 'Custom Species', type: 'text', placeholder: 'Describe species...', conditional: { field: 'species', value: 'Custom' } },
-      { id: 'sex', label: 'Biological Sex', type: 'select', options: ['Male', 'Female', 'Intersex', 'None/Construct', 'Non-Applicable'] },
-      { id: 'gender', label: 'Gender Identity', type: 'select', options: ['Man', 'Woman', 'Non-binary', 'Genderfluid', 'Agender', 'Transgender Man', 'Transgender Woman', 'Two-Spirit', 'Other'] },
-      { id: 'orientation', label: 'Sexual Orientation', type: 'select', options: ['Heterosexual', 'Homosexual', 'Bisexual', 'Pansexual', 'Asexual', 'Demisexual', 'Queer', 'Fluid'] },
+      select('genre', 'Genre Prior'),
+      select('species', 'Species'),
+      customText('species_custom', 'Custom Species', 'species', 'Describe species...'),
+      select('sex', 'Biological Sex'),
+      select('gender', 'Gender Identity'),
+      select('gender_expression', 'Gender Expression'),
+      customText('gender_expression_custom', 'Custom Gender Expression', 'gender_expression', 'How they present...'),
+      select('transition_note', 'Transition / History Note'),
+      customText('transition_note_custom', 'Custom Transition Note', 'transition_note', 'Optional history they would actually share...'),
+      select('orientation', 'Sexual Orientation'),
+      select('romantic_orientation', 'Romantic Orientation'),
+      customText('romantic_orientation_custom', 'Custom Romantic Orientation', 'romantic_orientation', 'How they fall (or do not)...'),
       { id: 'age', label: 'Age', type: 'number', placeholder: '25' },
-      { id: 'race', label: 'Race', type: 'select', options: ['East Asian', 'South Asian', 'Black / African descent', 'White / European descent', 'Latin American', 'Middle Eastern / North African', 'Pacific Islander', 'Indigenous / First Nations', 'Mixed / Multiracial', 'Non-Human Analog', 'Custom'] },
-      { id: 'race_custom', label: 'Custom Race', type: 'text', placeholder: 'E.g., Martian colonist phenotype, engineered lineage...', conditional: { field: 'race', value: 'Custom' } },
-      { id: 'ethnicity', label: 'Ethnicity', type: 'select', options: ['Nordic', 'Mediterranean', 'Slavic', 'West African', 'East African', 'Caribbean', 'Southeast Asian', 'Ashkenazi Jewish', 'Indigenous diaspora', 'Pan-regional / Stateless', 'Custom'] },
-      { id: 'ethnicity_custom', label: 'Custom Ethnicity', type: 'text', placeholder: 'E.g., Orbital creole culture, undercity clan heritage...', conditional: { field: 'ethnicity', value: 'Custom' } },
-      { id: 'origin', label: 'Origin', type: 'select', options: ['Urban Megacity', 'Rural Heartland', 'Orbital Habitat', 'Martian Settlement', 'Deep Sea Colony', 'Frontier Outpost', 'Nomadic Fleet', 'Underground Enclave', 'Arcology Sprawl', 'Monastery / Order Raised', 'Custom'] },
-      { id: 'origin_custom', label: 'Custom Origin', type: 'text', placeholder: 'E.g., Generation ship creche, fey border town, penal asteroid...', conditional: { field: 'origin', value: 'Custom' } },
-      { id: 'archetype', label: 'Archetype', type: 'select', options: ['The Hero', 'The Outlaw', 'The Sage', 'The Explorer', 'The Creator', 'The Ruler', 'The Magician', 'The Caregiver', 'The Jester', 'The Everyman', 'The Lover', 'The Innocent', 'The Alpha', 'The Golden Retriever', 'The Silver Fox', 'The Bad Boy', 'The Stoic Protector', 'The Lone Wolf', 'The Himbo', 'The Femme Fatale', 'The Trickster', 'The Monster'] },
-      { id: 'default_outfit', label: 'Default Outfit', type: 'select', options: ['Casual everyday', 'Travel/adventuring', 'Formal', 'Workwear', 'Athletic', 'Armor/combat', 'Uniform', 'Simple tunic/robe', 'Streetwear', 'Custom'] },
-      { id: 'default_outfit_custom', label: 'Custom Default Outfit', type: 'text', placeholder: 'E.g., waxed canvas duster, linen shirt, scuffed boots...', conditional: { field: 'default_outfit', value: 'Custom' } },
-    ]
+      select('race', 'Race'),
+      customText('race_custom', 'Custom Race', 'race', 'E.g., Martian colonist phenotype, engineered lineage...'),
+      select('ethnicity', 'Ethnicity'),
+      customText('ethnicity_custom', 'Custom Ethnicity', 'ethnicity', 'E.g., Orbital creole culture, undercity clan heritage...'),
+      select('origin', 'Origin'),
+      customText('origin_custom', 'Custom Origin', 'origin', 'E.g., Generation ship creche, fey border town, penal asteroid...'),
+      select('occupation', 'Occupation'),
+      customText('occupation_custom', 'Custom Occupation', 'occupation', 'Job, hustle, or vocation...'),
+      select('socioeconomic_class', 'Socioeconomic Class'),
+      customText('socioeconomic_class_custom', 'Custom Class', 'socioeconomic_class', 'Class position in their world...'),
+      select('competency_1', 'Competency 1'),
+      customText('competency_1_custom', 'Custom Competency 1', 'competency_1', 'What they can actually do...'),
+      select('competency_2', 'Competency 2'),
+      customText('competency_2_custom', 'Custom Competency 2', 'competency_2', 'A second skill, or leave None...'),
+      select('competency_3', 'Competency 3'),
+      customText('competency_3_custom', 'Custom Competency 3', 'competency_3', 'A third skill, or leave None...'),
+      select('archetype', 'Archetype'),
+      select('default_outfit', 'Default Outfit'),
+      customText('default_outfit_custom', 'Custom Default Outfit', 'default_outfit', 'E.g., waxed canvas duster, linen shirt, scuffed boots...'),
+    ],
   },
 
   physical: {
     icon: 'Dumbbell',
     label: 'Physical Anatomy',
-    description: 'Body type, build, and physical features.',
+    description: 'Overall silhouette, fat vs muscle, and regional overrides.',
     fields: [
-      { id: 'height', label: 'Height', type: 'select', options: ['Very Short', 'Short', 'Average', 'Tall', 'Very Tall', 'Towering', 'Looming', 'Custom'] },
-      { id: 'height_custom', label: 'Custom Height', type: 'text', placeholder: 'E.g., 6\'4\", impossibly tall, variable...', conditional: { field: 'height', value: 'Custom' } },
-      { id: 'body_hair', label: 'Body Hair', type: 'select', options: ['Smooth/Hairless', 'Light Fuzz', 'Treasure Trail', 'Hairy Chest', 'Full Body Hair', 'Trimmed & Styled', 'N/A (Non-Human)', 'Custom'] },
-      { id: 'body_hair_custom', label: 'Custom Body Hair', type: 'text', placeholder: 'Describe body hair distribution or pattern...', conditional: { field: 'body_hair', value: 'Custom' } },
-      { id: 'skin_tone', label: 'Skin Tone', type: 'select', options: ['Pale', 'Fair', 'Light', 'Olive', 'Tan', 'Bronze', 'Brown', 'Dark Brown', 'Deep Ebony', 'Slate/Grey', 'Blue', 'Green', 'Red', 'Purple', 'Gold', 'Scaled', 'Furred', 'Translucent', 'Metallic', 'Custom'] },
-      { id: 'skin_tone_custom', label: 'Custom Skin Tone', type: 'text', placeholder: 'E.g., Bioluminescent teal, rust-red patina...', conditional: { field: 'skin_tone', value: 'Custom' } },
-      { id: 'skin_texture', label: 'Skin Texture', type: 'select', options: ['Smooth', 'Weathered', 'Scarred', 'Freckled', 'Tattooed', 'Scaled', 'Furred', 'Chitin', 'Crystalline', 'Bark-like', 'Custom'] },
-      { id: 'skin_texture_custom', label: 'Custom Skin Texture', type: 'text', placeholder: 'Describe skin surface quality...', conditional: { field: 'skin_texture', value: 'Custom' } },
+      select('silhouette', 'Overall Silhouette'),
+      customText('silhouette_custom', 'Custom Silhouette', 'silhouette', 'Overall body architecture...'),
+      select('height', 'Height'),
+      customText('height_custom', 'Custom Height', 'height', 'E.g., 6\'4", impossibly tall, variable...'),
+      { id: 'body_softness', label: 'Softness / Body Fat', type: 'range', min: 0, max: 100, default: 40 },
       { id: 'muscle_def', label: 'Muscle Definition', type: 'range', min: 0, max: 100, default: 30 },
       { id: 'vascularity', label: 'Vascularity (Veins)', type: 'range', min: 0, max: 100, default: 15 },
-      { id: 'forearms', label: 'Forearms', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'forearms_custom', label: 'Custom Forearms', type: 'text', placeholder: 'Describe forearm build...', conditional: { field: 'forearms', value: 'Custom' } },
-      { id: 'upper_arms', label: 'Upper Arms', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'upper_arms_custom', label: 'Custom Upper Arms', type: 'text', placeholder: 'Describe biceps/triceps...', conditional: { field: 'upper_arms', value: 'Custom' } },
-      { id: 'shoulders', label: 'Shoulders', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'shoulders_custom', label: 'Custom Shoulders', type: 'text', placeholder: 'Describe shoulder breadth and shape...', conditional: { field: 'shoulders', value: 'Custom' } },
-      { id: 'neck', label: 'Neck', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'neck_custom', label: 'Custom Neck', type: 'text', placeholder: 'Describe neck thickness, length...', conditional: { field: 'neck', value: 'Custom' } },
-      { id: 'chest_size', label: 'Chest / Pectoral', type: 'select', options: ['Flat', 'Defined', 'Broad', 'Massive', 'Soft', 'Slender', 'Toned', 'N/A (Non-Human)', 'Custom'] },
-      { id: 'chest_size_custom', label: 'Custom Chest / Pectoral', type: 'text', placeholder: 'Describe chest shape and mass...', conditional: { field: 'chest_size', value: 'Custom' } },
-      { id: 'abs', label: 'Abs / Core', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'abs_custom', label: 'Custom Abs / Core', type: 'text', placeholder: 'Describe midsection...', conditional: { field: 'abs', value: 'Custom' } },
-      { id: 'back', label: 'Back', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'back_custom', label: 'Custom Back', type: 'text', placeholder: 'Describe back width, lats, definition...', conditional: { field: 'back', value: 'Custom' } },
-      { id: 'glutes', label: 'Glutes', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'glutes_custom', label: 'Custom Glutes', type: 'text', placeholder: 'Describe hip and glute shape...', conditional: { field: 'glutes', value: 'Custom' } },
-      { id: 'upper_legs', label: 'Upper Legs / Thighs', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'upper_legs_custom', label: 'Custom Upper Legs', type: 'text', placeholder: 'Describe thighs and quads...', conditional: { field: 'upper_legs', value: 'Custom' } },
-      { id: 'lower_legs', label: 'Lower Legs / Calves', type: 'select', options: [...BODY_PART_DESCRIPTORS] },
-      { id: 'lower_legs_custom', label: 'Custom Lower Legs', type: 'text', placeholder: 'Describe calves and shins...', conditional: { field: 'lower_legs', value: 'Custom' } },
-      { id: 'scars', label: 'Scars & Markings', type: 'select', options: [...selectScarsOptions, 'Custom'] },
-      { id: 'scars_custom', label: 'Custom Scars & Markings', type: 'text', placeholder: 'E.g., Slash across left pec, tribal tattoos on arms...', conditional: { field: 'scars', value: 'Custom' } },
-      { id: 'blemishes', label: 'Blemishes & Imperfections', type: 'select', options: [...selectBlemishesOptions, 'Custom'] },
-      { id: 'blemishes_custom', label: 'Custom Blemishes', type: 'text', placeholder: 'E.g., Broken nose, cauliflower ear, burn marks...', conditional: { field: 'blemishes', value: 'Custom' } },
-      { id: 'special_features', label: 'Non-Human Features', type: 'select', options: [...selectSpecialFeaturesOptions, 'Custom'] },
-      { id: 'special_features_custom', label: 'Custom Non-Human Features', type: 'text', placeholder: 'E.g., Horns, tail, wings, extra limbs, antenna...', conditional: { field: 'special_features', value: 'Custom' } },
-    ]
+      select('chest_anatomy', 'Chest Anatomy'),
+      customText('chest_anatomy_custom', 'Custom Chest Anatomy', 'chest_anatomy', 'Pecs, breasts, neither...'),
+      select('chest_size', 'Chest Size / Shape'),
+      customText('chest_size_custom', 'Custom Chest Size', 'chest_size', 'Describe chest shape and mass...'),
+      select('body_hair', 'Body Hair'),
+      customText('body_hair_custom', 'Custom Body Hair', 'body_hair', 'Describe body hair distribution or pattern...'),
+      select('skin_tone', 'Skin Tone'),
+      customText('skin_tone_custom', 'Custom Skin Tone', 'skin_tone', 'E.g., Bioluminescent teal, rust-red patina...'),
+      select('skin_texture', 'Skin Texture'),
+      customText('skin_texture_custom', 'Custom Skin Texture', 'skin_texture', 'Describe skin surface quality...'),
+      select('forearms', 'Forearms'),
+      customText('forearms_custom', 'Custom Forearms', 'forearms', 'Describe forearm build...'),
+      select('upper_arms', 'Upper Arms'),
+      customText('upper_arms_custom', 'Custom Upper Arms', 'upper_arms', 'Describe biceps/triceps...'),
+      select('shoulders', 'Shoulders'),
+      customText('shoulders_custom', 'Custom Shoulders', 'shoulders', 'Describe shoulder breadth and shape...'),
+      select('neck', 'Neck'),
+      customText('neck_custom', 'Custom Neck', 'neck', 'Describe neck thickness, length...'),
+      select('abs', 'Abs / Core'),
+      customText('abs_custom', 'Custom Abs / Core', 'abs', 'Describe midsection...'),
+      select('back', 'Back'),
+      customText('back_custom', 'Custom Back', 'back', 'Describe back width, lats, definition...'),
+      select('glutes', 'Glutes'),
+      customText('glutes_custom', 'Custom Glutes', 'glutes', 'Describe hip and glute shape...'),
+      select('upper_legs', 'Upper Legs / Thighs'),
+      customText('upper_legs_custom', 'Custom Upper Legs', 'upper_legs', 'Describe thighs and quads...'),
+      select('lower_legs', 'Lower Legs / Calves'),
+      customText('lower_legs_custom', 'Custom Lower Legs', 'lower_legs', 'Describe calves and shins...'),
+      select('scars', 'Scars & Markings'),
+      customText('scars_custom', 'Custom Scars & Markings', 'scars', 'E.g., Slash across left pec, tribal tattoos on arms...'),
+      select('blemishes', 'Blemishes & Imperfections'),
+      customText('blemishes_custom', 'Custom Blemishes', 'blemishes', 'E.g., Broken nose, cauliflower ear, burn marks...'),
+      select('special_features', 'Non-Human Features'),
+      customText('special_features_custom', 'Custom Non-Human Features', 'special_features', 'E.g., Horns, tail, wings, extra limbs, antenna...'),
+    ],
   },
 
   face: {
@@ -100,20 +115,20 @@ export const CHARACTER_SECTIONS = {
     label: 'Face & Grooming',
     description: 'Facial structure, hair, eyes, and grooming.',
     fields: [
-      { id: 'facial_structure', label: 'Facial Structure', type: 'select', options: ['Square-Jawed', 'Chiseled', 'Rugged', 'Soft/Boyish', 'Gaunt', 'Aristocratic', 'Round', 'Angular', 'Pretty', 'Weathered', 'Alien/Non-Human'] },
-      { id: 'mustache', label: 'Mustache', type: 'select', options: ['None / Clean Upper Lip', 'Light Stubble (Upper)', 'Pencil', 'Chevron', 'Walrus', 'Horseshoe', 'Handlebar', 'Petite Handlebar', "Painter's Brush", 'Fu Manchu', 'English', 'Imperial', 'Lampshade', 'Pyramid', 'Toothbrush', 'N/A (Non-Human)', 'Custom'] },
-      { id: 'mustache_custom', label: 'Custom Mustache', type: 'text', placeholder: 'Describe mustache shape, length, grooming...', conditional: { field: 'mustache', value: 'Custom' } },
-      { id: 'beard', label: 'Beard', type: 'select', options: ['None / Clean Shaven', 'Five O\'Clock Shadow', 'Short Stubble', 'Long Stubble', 'Corporate Beard', 'Short Boxed Beard', 'Verdi', 'Garibaldi', 'Bandholz', 'Ducktail', 'Yeard', 'Van Dyke', 'Goatee (Pure)', 'Goatee + Connected Mustache', 'Soul Patch Only', 'Mutton Chops', 'Friendly Mutton Chops', 'N/A (Non-Human)', 'Custom'] },
-      { id: 'beard_custom', label: 'Custom Beard', type: 'text', placeholder: 'Describe beard length, shape, line, density...', conditional: { field: 'beard', value: 'Custom' } },
-      { id: 'eye_color', label: 'Eye Color', type: 'select', options: ['Brown', 'Blue', 'Green', 'Hazel', 'Amber', 'Gray', 'Red', 'Violet', 'Heterochromia', 'Black', 'White', 'Glowing', 'Custom'] },
-      { id: 'eye_color_custom', label: 'Custom Eye Color', type: 'text', placeholder: 'Describe eye color...', conditional: { field: 'eye_color', value: 'Custom' } },
-      { id: 'eye_shape', label: 'Eye Shape', type: 'select', options: ['Almond', 'Round', 'Hooded', 'Monolid', 'Deep-set', 'Wide-set', 'Narrow', 'Multiple Eyes', 'No Eyes', 'Glowing'] },
-      { id: 'hair_style', label: 'Hair Style', type: 'select', options: ['Buzz Cut', 'Fade', 'Undercut', 'Man Bun', 'Long & Flowing', 'Messy/Bedhead', 'Slicked Back', 'Bald', 'Mohawk', 'Braided', 'Dreadlocks', 'Pixie Cut', 'Bob', 'Ponytail', 'Shaved Sides', 'Afro', 'Tentacles/Non-Human'] },
-      { id: 'hair_color', label: 'Hair Color', type: 'select', options: ['Jet Black', 'Dark Brown', 'Light Brown', 'Dirty Blonde', 'Platinum Blonde', 'Silver/Grey', 'Salt & Pepper', 'Red/Auburn', 'Ginger', 'White', 'Blue', 'Pink', 'Purple', 'Green', 'Multicolored', 'Bald/N/A'] },
+      select('facial_structure', 'Facial Structure'),
+      select('mustache', 'Mustache'),
+      customText('mustache_custom', 'Custom Mustache', 'mustache', 'Describe mustache shape, length, grooming...'),
+      select('beard', 'Beard'),
+      customText('beard_custom', 'Custom Beard', 'beard', 'Describe beard length, shape, line, density...'),
+      select('eye_color', 'Eye Color'),
+      customText('eye_color_custom', 'Custom Eye Color', 'eye_color', 'Describe eye color...'),
+      select('eye_shape', 'Eye Shape'),
+      select('hair_style', 'Hair Style'),
+      select('hair_color', 'Hair Color'),
       { id: 'aging', label: 'Apparent Age', type: 'number', placeholder: 'e.g. 35', min: 1, max: 120 },
-      { id: 'distinguishing_facial', label: 'Distinguishing Features', type: 'select', options: [...selectDistinguishingFacialOptions, 'Custom'] },
-      { id: 'distinguishing_facial_custom', label: 'Custom Distinguishing Features', type: 'text', placeholder: 'E.g., Scar through eyebrow, nose ring, beauty mark...', conditional: { field: 'distinguishing_facial', value: 'Custom' } },
-    ]
+      select('distinguishing_facial', 'Distinguishing Features'),
+      customText('distinguishing_facial_custom', 'Custom Distinguishing Features', 'distinguishing_facial', 'E.g., Scar through eyebrow, nose ring, beauty mark...'),
+    ],
   },
 
   movement: {
@@ -121,29 +136,34 @@ export const CHARACTER_SECTIONS = {
     label: 'Movement & Presence',
     description: 'How the character moves, sounds, and is perceived.',
     fields: [
-      { id: 'gait', label: 'Gait / Movement Style', type: 'select', options: ['Staccato', 'Lumbering', 'Gliding', 'Shuffling', 'Strutting', 'Prowling', 'Bouncing', 'Mechanical', 'Slithering', 'Floating'] },
-      { id: 'voice', label: 'Voice Timbre', type: 'select', options: ['Gravelly', 'Nasal', 'Breathy', 'Booming', 'Melodic', 'Monotone', 'Strained', 'Silky', 'Raspy', 'Squeaky', 'Echoing', 'Telepathic'] },
-      { id: 'scent', label: 'Signature Scent', type: 'select', options: ['Ozone & Copper', 'Old Paper & Vanilla', 'Woodsmoke & Pine', 'Cheap Perfume & Gin', 'Motor Oil & Citrus', 'Lavender & Dust', 'Saltwater & Rot', 'Blood & Iron', 'Fresh Rain', 'Sulfur', 'Nothing/Sterile', 'Alien/Indescribable'] },
-      { id: 'aura', label: 'Aura / Energy', type: 'select', options: ['Warm & Inviting', 'Cold & Distant', 'Electrifying', 'Calming', 'Menacing', 'Mysterious', 'Chaotic', 'Regal', 'Magnetic', 'Unsettling', 'None/Mundane'] },
+      select('gait', 'Gait / Movement Style'),
+      select('voice', 'Voice Timbre'),
+      select('scent', 'Signature Scent'),
+      select('aura', 'Aura / Energy'),
       { id: 'sweat_glisten', label: 'Skin Glisten / Sweat', type: 'range', min: 0, max: 100, default: 10 },
-    ]
+    ],
   },
 
   psychology: {
     icon: 'Brain',
     label: 'Psychology & Mind',
-    description: 'Personality frameworks and mental landscape.',
+    description: 'Personality frameworks, attachment, coping, and values.',
     fields: [
-      { id: 'alignment', label: 'Moral Alignment', type: 'select', options: ['Lawful Good', 'Neutral Good', 'Chaotic Good', 'Lawful Neutral', 'True Neutral', 'Chaotic Neutral', 'Lawful Evil', 'Neutral Evil', 'Chaotic Evil'] },
-      { id: 'mbti', label: 'MBTI Type', type: 'select', options: ['INTJ', 'INTP', 'ENTJ', 'ENTP', 'INFJ', 'INFP', 'ENFJ', 'ENFP', 'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ', 'ISTP', 'ISFP', 'ESTP', 'ESFP'] },
-      { id: 'enneagram', label: 'Enneagram', type: 'select', options: ['Type 1 (Reformer)', 'Type 2 (Helper)', 'Type 3 (Achiever)', 'Type 4 (Individualist)', 'Type 5 (Investigator)', 'Type 6 (Loyalist)', 'Type 7 (Enthusiast)', 'Type 8 (Challenger)', 'Type 9 (Peacemaker)'] },
-      { id: 'personality', label: 'Core Personality Trait', type: 'select', options: ['Brooding', 'Cheerful', 'Arrogant', 'Protective', 'Shy', 'Aggressive', 'Flirtatious', 'Stoic', 'Manic', 'Curious', 'Paranoid', 'Compassionate'] },
+      select('alignment', 'Moral Alignment'),
+      select('mbti', 'MBTI Type'),
+      select('enneagram', 'Enneagram'),
+      select('personality', 'Core Personality Trait'),
+      select('attachment', 'Adult Attachment'),
+      select('coping', 'Coping / Emotion Regulation'),
+      customText('coping_custom', 'Custom Coping', 'coping', 'What they do under stress...'),
+      select('values', 'Core Value'),
+      customText('values_custom', 'Custom Value', 'values', 'What they will not trade away...'),
       { id: 'ocean_o', label: 'Openness', type: 'range', min: 0, max: 100, default: 50 },
       { id: 'ocean_c', label: 'Conscientiousness', type: 'range', min: 0, max: 100, default: 50 },
       { id: 'ocean_e', label: 'Extraversion', type: 'range', min: 0, max: 100, default: 50 },
       { id: 'ocean_a', label: 'Agreeableness', type: 'range', min: 0, max: 100, default: 50 },
       { id: 'ocean_n', label: 'Neuroticism', type: 'range', min: 0, max: 100, default: 50 },
-    ]
+    ],
   },
 
   narrative: {
@@ -151,37 +171,38 @@ export const CHARACTER_SECTIONS = {
     label: 'Narrative & History',
     description: 'Backstory, goals, fears, and the forces that drive them.',
     fields: [
-      { id: 'goal', label: 'Conscious Goal', type: 'select', options: [...selectGoalOptions, 'Custom'] },
-      { id: 'goal_custom', label: 'Custom Goal', type: 'text', placeholder: 'Describe custom goal...', conditional: { field: 'goal', value: 'Custom' } },
-      { id: 'fear', label: 'Deepest Fear', type: 'select', options: [...selectFearOptions, 'Custom'] },
-      { id: 'fear_custom', label: 'Custom Fear', type: 'text', placeholder: 'Describe custom fear...', conditional: { field: 'fear', value: 'Custom' } },
-      { id: 'desire', label: 'Secret Desire', type: 'select', options: [...selectDesireOptions, 'Custom'] },
-      { id: 'desire_custom', label: 'Custom Desire', type: 'text', placeholder: 'Describe custom desire...', conditional: { field: 'desire', value: 'Custom' } },
-      { id: 'lie', label: 'The Lie They Believe', type: 'select', options: ['I am unlovable', 'Vulnerability is death', 'I know best', 'The world is just', 'Power is the only safety', 'I dont deserve happiness', 'Everyone leaves eventually', 'I must be perfect', 'Trust no one', 'I am broken beyond repair'] },
-      { id: 'vice', label: 'Primary Vice', type: 'select', options: ['Wrath', 'Greed', 'Sloth', 'Pride', 'Lust', 'Envy', 'Gluttony', 'Cruelty', 'Cowardice', 'Obsession'] },
-      { id: 'virtue', label: 'Primary Virtue', type: 'select', options: ['Chastity', 'Temperance', 'Charity', 'Diligence', 'Patience', 'Kindness', 'Humility', 'Courage', 'Loyalty', 'Wisdom'] },
-      { id: 'trauma', label: 'Trauma History', type: 'select', options: [...selectTraumaOptions, 'Custom'] },
-      { id: 'trauma_custom', label: 'Custom Trauma History', type: 'text', placeholder: 'Defining traumatic event or ongoing trauma...', conditional: { field: 'trauma', value: 'Custom' } },
-      { id: 'moral_code', label: 'Moral Code', type: 'select', options: [...selectMoralCodeOptions, 'Custom'] },
-      { id: 'moral_code_custom', label: 'Custom Moral Code', type: 'text', placeholder: 'E.g., Never harm children, Always repay debts...', conditional: { field: 'moral_code', value: 'Custom' } },
-      { id: 'prejudice', label: 'Prejudices & Biases', type: 'select', options: [...selectPrejudiceOptions, 'Custom'] },
-      { id: 'prejudice_custom', label: 'Custom Prejudices', type: 'text', placeholder: 'What groups/things do they irrationally dislike...', conditional: { field: 'prejudice', value: 'Custom' } },
-    ]
+      select('goal', 'Conscious Goal'),
+      customText('goal_custom', 'Custom Goal', 'goal', 'Describe custom goal...'),
+      select('fear', 'Deepest Fear'),
+      customText('fear_custom', 'Custom Fear', 'fear', 'Describe custom fear...'),
+      select('desire', 'Secret Desire'),
+      customText('desire_custom', 'Custom Desire', 'desire', 'Describe custom desire...'),
+      select('lie', 'The Lie They Believe'),
+      customText('lie_custom', 'Custom Lie', 'lie', 'A core belief they treat as fact...'),
+      select('vice', 'Primary Vice'),
+      select('virtue', 'Primary Virtue'),
+      select('trauma', 'Trauma History'),
+      customText('trauma_custom', 'Custom Trauma History', 'trauma', 'Defining traumatic event or ongoing trauma...'),
+      select('moral_code', 'Moral Code'),
+      customText('moral_code_custom', 'Custom Moral Code', 'moral_code', 'E.g., Never harm children, Always repay debts...'),
+      select('prejudice', 'Prejudices & Biases'),
+      customText('prejudice_custom', 'Custom Prejudices', 'prejudice', 'What groups/things do they irrationally dislike...'),
+    ],
   },
 
   social: {
     icon: 'MessagesSquare',
     label: 'Social & Speech',
-    description: 'How they interact, communicate, and connect.',
+    description: 'How they interact, communicate, and take up space in a room.',
     fields: [
-      { id: 'battery', label: 'Social Battery', type: 'select', options: ['Deep Introvert', 'Introvert', 'Ambivert', 'Extrovert', 'Omnivert'] },
-      { id: 'speech_style', label: 'Speech Style', type: 'select', options: ['Telegraphic (Short)', 'Labyrinthine (Complex)', 'Academic', 'Street/Slang', 'Poetic', 'Military/Clipped', 'Formal', 'Sarcastic', 'Mumbling'] },
-      { id: 'tic', label: 'Verbal/Physical Tic', type: 'select', options: ['Clears throat often', 'Uses filler words', 'Long pauses', 'Ends sentences as questions', 'Whispers', 'Cracks knuckles', 'Clicks tongue', 'Eye twitch', 'Fidgets with hands', 'Taps foot', 'None'] },
-      { id: 'humor', label: 'Sense of Humor', type: 'select', options: ['Dry/Deadpan', 'Slapstick', 'Self-Deprecating', 'Dark/Morbid', 'None/Literal', 'Witty/Puns', 'Crude', 'Absurdist'] },
-      { id: 'dynamic', label: 'Social Dynamic', type: 'select', options: ['Dominant', 'Submissive', 'Switch', 'Service-Oriented', 'Primal', 'Gentleman', 'Wallflower', 'Center of Attention', 'Mediator'] },
-      { id: 'quirk', label: 'Behavioral Quirk', type: 'select', options: [...selectQuirkOptions, 'Custom'] },
-      { id: 'quirk_custom', label: 'Custom Behavioral Quirk', type: 'text', placeholder: 'E.g., Always sits facing the door, counts steps...', conditional: { field: 'quirk', value: 'Custom' } },
-    ]
+      select('battery', 'Social Battery'),
+      select('speech_style', 'Speech Style'),
+      select('tic', 'Verbal/Physical Tic'),
+      select('humor', 'Sense of Humor'),
+      select('dynamic', 'Party / Status Dynamic'),
+      select('quirk', 'Behavioral Quirk'),
+      customText('quirk_custom', 'Custom Behavioral Quirk', 'quirk', 'E.g., Always sits facing the door, counts steps...'),
+    ],
   },
 
   adult: {
@@ -189,29 +210,29 @@ export const CHARACTER_SECTIONS = {
     label: 'Mature / Adult',
     description: 'Sexual preferences, kinks, and intimate details.',
     fields: [
-      { id: 'sexual_role', label: 'Sexual Role', type: 'select', options: ['Top', 'Bottom', 'Versatile', 'Power Bottom', 'Service Top', 'Switch', 'N/A'] },
-      { id: 'relationship_style', label: 'Relationship Style', type: 'select', options: ['Monogamous', 'Polyamorous', 'Open', 'Casual Only', 'Aromantic', 'Demisexual Bonding', 'Its Complicated'] },
-      { id: 'kinks', label: 'Kinks & Interests', type: 'select', options: [...selectKinksOptions, 'Custom'] },
-      { id: 'kinks_custom', label: 'Custom Kinks & Interests', type: 'text', placeholder: 'E.g., Bondage, roleplay, exhibitionism...', conditional: { field: 'kinks', value: 'Custom' } },
-      { id: 'turn_ons', label: 'Turn Ons', type: 'select', options: [...selectTurnOnsOptions, 'Custom'] },
-      { id: 'turn_ons_custom', label: 'Custom Turn Ons', type: 'text', placeholder: 'What attracts or excites them...', conditional: { field: 'turn_ons', value: 'Custom' } },
-      { id: 'turn_offs', label: 'Turn Offs / Disgusts', type: 'select', options: [...selectTurnOffsOptions, 'Custom'] },
-      { id: 'turn_offs_custom', label: 'Custom Turn Offs', type: 'text', placeholder: 'What repels them...', conditional: { field: 'turn_offs', value: 'Custom' } },
-      { id: 'attraction_type', label: 'Attracted To', type: 'select', options: [...selectAttractionTypeOptions, 'Custom'] },
-      { id: 'attraction_type_custom', label: 'Custom Attraction', type: 'text', placeholder: 'Physical types, personality traits they find attractive...', conditional: { field: 'attraction_type', value: 'Custom' } },
-      { id: 'intimidated_by', label: 'Intimidated By', type: 'select', options: [...selectIntimidatedByOptions, 'Custom'] },
-      { id: 'intimidated_by_custom', label: 'Custom Intimidation', type: 'text', placeholder: 'Situations, people, or dynamics that unnerve them...', conditional: { field: 'intimidated_by', value: 'Custom' } },
-      { id: 'experience_level', label: 'Experience Level', type: 'select', options: ['Virgin/Inexperienced', 'Novice', 'Experienced', 'Very Experienced', 'Expert/Legendary'] },
-      { id: 'intimacy_style', label: 'Intimacy Style', type: 'select', options: ['Gentle & Tender', 'Passionate & Intense', 'Rough & Dominant', 'Playful & Teasing', 'Clinical & Detached', 'Animalistic', 'Romantic'] },
-      { id: 'attire', label: 'Intimate Attire', type: 'select', options: ['Grey Sweatpants (Shirtless)', 'Boxer Briefs', 'Boxers', 'Briefs', 'Thong', 'G-String', 'Jockstrap', 'Athletic Cup & Straps', 'Speedo / Swim Briefs', 'Compression Shorts', 'Bike Shorts', 'Lace Teddy', 'Babydoll & Panties', 'Corset & Stockings', 'Bodystocking', 'Maid Outfit', 'Nurse / Clinical Fantasy', 'Latex Suit / Catsuit', 'Leather Harness & Cuffs', 'Harness Only', 'Open Robe / Kimono', 'Silk Robe', 'Satin Pajama Set', 'Unbuttoned Flannel', 'White Towel', 'Sarong / Wrap', 'Tactical Gear (Sleeveless)', 'Nothing / Nude', 'Custom'] },
-      { id: 'attire_custom', label: 'Custom Intimate Attire', type: 'text', placeholder: 'Describe outfit, fabrics, cut, accessories...', conditional: { field: 'attire', value: 'Custom' } },
+      select('sexual_role', 'Sexual Role'),
+      select('relationship_style', 'Relationship Style'),
+      select('kinks', 'Kinks & Interests'),
+      customText('kinks_custom', 'Custom Kinks & Interests', 'kinks', 'E.g., Bondage, roleplay, exhibitionism...'),
+      select('turn_ons', 'Turn Ons'),
+      customText('turn_ons_custom', 'Custom Turn Ons', 'turn_ons', 'What attracts or excites them...'),
+      select('turn_offs', 'Turn Offs / Disgusts'),
+      customText('turn_offs_custom', 'Custom Turn Offs', 'turn_offs', 'What repels them...'),
+      select('attraction_type', 'Attracted To'),
+      customText('attraction_type_custom', 'Custom Attraction', 'attraction_type', 'Physical types, personality traits they find attractive...'),
+      select('intimidated_by', 'Intimidated By'),
+      customText('intimidated_by_custom', 'Custom Intimidation', 'intimidated_by', 'Situations, people, or dynamics that unnerve them...'),
+      select('experience_level', 'Experience Level'),
+      select('intimacy_style', 'Intimacy Style'),
+      select('attire', 'Intimate Attire'),
+      customText('attire_custom', 'Custom Intimate Attire', 'attire', 'Describe outfit, fabrics, cut, accessories...'),
       { id: 'body_confidence', label: 'Body Confidence', type: 'range', min: 0, max: 100, default: 50 },
-    ]
+    ],
   },
 }
 
 /** Persist this on every library save. Bump when generatedImages or attribute shape changes. */
-export const CHARACTER_SCHEMA_VERSION = 4
+export const CHARACTER_SCHEMA_VERSION = 5
 
 export function emptyGeneratedImages() {
   return {
@@ -223,11 +244,10 @@ export function emptyGeneratedImages() {
   }
 }
 
-// Flattened list of all field IDs for easy access
 export function getAllFieldIds() {
   const ids = []
-  Object.values(CHARACTER_SECTIONS).forEach(section => {
-    section.fields.forEach(field => {
+  Object.values(CHARACTER_SECTIONS).forEach((section) => {
+    section.fields.forEach((field) => {
       ids.push(field.id)
     })
   })
@@ -237,19 +257,18 @@ export function getAllFieldIds() {
 /** Field ids that should be coerced to integers when applying image analysis JSON. */
 export function getNumericFieldIds() {
   const ids = []
-  Object.values(CHARACTER_SECTIONS).forEach(section => {
-    section.fields.forEach(field => {
+  Object.values(CHARACTER_SECTIONS).forEach((section) => {
+    section.fields.forEach((field) => {
       if (field.type === 'range' || field.type === 'number') ids.push(field.id)
     })
   })
   return ids
 }
 
-// Get default character state
 export function getDefaultCharacter() {
   const char = {}
-  Object.values(CHARACTER_SECTIONS).forEach(section => {
-    section.fields.forEach(field => {
+  Object.values(CHARACTER_SECTIONS).forEach((section) => {
+    section.fields.forEach((field) => {
       if (field.type === 'range') {
         char[field.id] = field.default ?? 50
       } else {
@@ -260,7 +279,6 @@ export function getDefaultCharacter() {
   return char
 }
 
-// Image generation style options (from PixelForge)
 export const ART_STYLES = [
   { label: 'Default (Concept Art)', value: '' },
   { label: 'Photorealistic', value: ', photorealistic, 8k, cinematic' },

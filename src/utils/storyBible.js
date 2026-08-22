@@ -2,12 +2,8 @@
  * Compact story bible for narrative generation — not the full character JSON.
  */
 
-function selectDisplay(c, id) {
-  const v = c?.[id]
-  if (!v) return ''
-  if (v === 'Custom') return String(c[`${id}_custom`] || '').trim()
-  return String(v)
-}
+import { selectDisplay } from './selectDisplay'
+import { compileChatTrait } from './compileCharacter'
 
 function firstNonEmpty(...vals) {
   for (const v of vals) {
@@ -52,10 +48,15 @@ export function pickNarrativeLens(lensId) {
 }
 
 /**
- * Guess a default story genre from species / origin when the user has not chosen one.
+ * Guess a default story genre from species / origin / genre prior when the user has not chosen one.
  * @param {Record<string, unknown>} c
  */
 export function guessGenreFromCharacter(c) {
+  const prior = selectDisplay(c, 'genre')
+  if (prior === 'Modern') return 'Modern'
+  if (prior === 'Sci-Fi') return 'Sci-Fi'
+  if (prior === 'Fantasy') return 'High Fantasy'
+
   const species = selectDisplay(c, 'species').toLowerCase()
   const origin = selectDisplay(c, 'origin').toLowerCase()
   const hay = `${species} ${origin}`
@@ -78,11 +79,10 @@ function pickNarrativeSpine(c) {
     const v = selectDisplay(c, id)
     if (v) picks.push({ label, value: v })
   }
-  add('Goal', 'goal')
-  add('Fear', 'fear')
-  add('Secret desire', 'desire')
-  add('Trauma', 'trauma')
+  add('Want', 'goal')
+  add('Wound', 'trauma')
   add('The lie they believe', 'lie')
+  add('Fear', 'fear')
   return picks.slice(0, 4)
 }
 
@@ -96,7 +96,7 @@ function pickPhysicalTell(c) {
   for (const [label, id] of order) {
     const v = selectDisplay(c, id)
     if (!v) continue
-    if (/^n\/a/i.test(v) || /^none/i.test(v)) continue
+    if (/^n\/a/i.test(v) || /^none/i.test(v) || v === 'Fully humanoid baseline' || v === 'Minimal / none visible') continue
     return `${label}: ${v}`
   }
   const height = selectDisplay(c, 'height')
@@ -110,6 +110,7 @@ export function includeAdultInStoryBible(tone) {
 }
 
 /**
+ * Compact bible: wound + want, not the psychology dump (that lives in chat compile).
  * @param {Record<string, unknown>} character
  * @param {{ includeAdult?: boolean }} [options]
  * @returns {Record<string, string>}
@@ -121,13 +122,14 @@ export function buildStoryBible(character, options = {}) {
     name: firstNonEmpty(c.name, 'Unnamed'),
     species: selectDisplay(c, 'species'),
     origin: selectDisplay(c, 'origin'),
+    occupation: selectDisplay(c, 'occupation'),
     sex: c.sex ? String(c.sex) : '',
     gender: c.gender ? String(c.gender) : '',
     speech_style: selectDisplay(c, 'speech_style'),
-    gait: selectDisplay(c, 'gait'),
-    scent: selectDisplay(c, 'scent'),
     voice: selectDisplay(c, 'voice'),
     lie: selectDisplay(c, 'lie'),
+    want: selectDisplay(c, 'goal'),
+    wound: selectDisplay(c, 'trauma'),
     physical_tell: pickPhysicalTell(c),
   }
 
@@ -137,8 +139,8 @@ export function buildStoryBible(character, options = {}) {
   })
 
   if (includeAdult) {
-    const kinks = selectDisplay(c, 'kinks')
-    const intimacy = selectDisplay(c, 'intimacy_style')
+    const kinks = compileChatTrait('kinks', c)
+    const intimacy = compileChatTrait('intimacy_style', c)
     if (kinks) bible.kinks = kinks
     if (intimacy) bible.intimacy_style = intimacy
   }

@@ -7,6 +7,8 @@ import {
   generateImage as callGenerateImage,
   buildChatPhotoPrompt,
 } from '../../utils/api'
+import { selectDisplay } from '../../utils/selectDisplay'
+import { compileImageLine } from '../../utils/compileCharacter'
 import { composeChatSystemPrompt, CHAT_OPENERS, CHAT_HEATS } from '../../utils/chatPrompt'
 import { parseReplyBlocks, stripProtocolTags, sleep, userRecentlyAskedForPhoto } from '../../utils/chatProtocol'
 import {
@@ -24,17 +26,16 @@ import {
 
 function visualLine(character) {
   const bits = [
-    character.species,
-    character.hair_color,
-    character.hair_style,
-    character.eye_color,
-    character.skin_tone,
-    character.facial_structure,
-    character.default_outfit === 'Custom'
-      ? character.default_outfit_custom
-      : character.default_outfit,
+    compileImageLine('species', character),
+    compileImageLine('hair_color', character),
+    compileImageLine('hair_style', character),
+    compileImageLine('eye_color', character),
+    compileImageLine('skin_tone', character),
+    compileImageLine('facial_structure', character),
+    compileImageLine('silhouette', character),
+    selectDisplay(character, 'default_outfit'),
   ].filter((v) => v && v !== 'Custom')
-  return bits.join(', ')
+  return bits.join(' ').replace(/\.\s*$/, '')
 }
 
 export default function ChatPanel() {

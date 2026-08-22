@@ -2,20 +2,17 @@ import React from 'react'
 import { Shuffle } from 'lucide-react'
 import { CHARACTER_SECTIONS } from '../../data/schemas'
 import { useCharacterStore } from '../../hooks/useCharacter'
-import {
-  definitions,
-  getGenericAttributeDescription,
-  getRangeDescription,
-  getRoleplayTip,
-} from '../../data/definitions'
+import { findOption } from '../../data/options'
+import { compileLore, getRangeBin, getGenericAttributeDescription } from '../../utils/compileCharacter'
+import { getRoleplayTip } from '../../data/definitions'
 import FormField from './FormField'
 
 export default function CharacterForm({ section, onContextChange }) {
   const sectionData = CHARACTER_SECTIONS[section]
-  const character = useCharacterStore(s => s.character)
-  const updateField = useCharacterStore(s => s.updateField)
-  const randomizeSection = useCharacterStore(s => s.randomizeSection)
-  const isGenerating = useCharacterStore(s => s.isGenerating)
+  const character = useCharacterStore((s) => s.character)
+  const updateField = useCharacterStore((s) => s.updateField)
+  const randomizeSection = useCharacterStore((s) => s.randomizeSection)
+  const isGenerating = useCharacterStore((s) => s.isGenerating)
 
   if (!sectionData) return null
 
@@ -26,50 +23,44 @@ export default function CharacterForm({ section, onContextChange }) {
 
   const handleFieldHover = (fieldId) => {
     const value = character[fieldId]
-    if (value) updateContext(fieldId, value)
+    if (value !== '' && value != null) updateContext(fieldId, value)
   }
 
   const updateContext = (fieldId, value) => {
-    let title = value || 'Select an attribute'
-    let description = ''
-    let tip = null
+    const field = sectionData.fields.find((f) => f.id === fieldId)
+    const preview = { ...character, [fieldId]: value }
+    let title = 'Select an attribute'
+    let description = compileLore(fieldId, preview)
+    let tip = getRoleplayTip(fieldId, value)
 
-    // Check definitions dictionary
-    if (value && definitions[value]) {
-      description = definitions[value]
-    }
-
-    // Check range descriptions
-    const field = sectionData.fields.find(f => f.id === fieldId)
     if (field?.type === 'range') {
-      description = getRangeDescription(fieldId, value)
-      title = `${field.label}: ${value}%`
-    }
-    if (field?.type === 'number' && fieldId === 'aging' && value !== '' && value != null) {
-      description = getRangeDescription('aging', value)
-      title = `${field.label}: ${value}`
+      const bin = getRangeBin(fieldId, value)
+      title = `${field.label}: ${bin.label}`
+    } else if (field?.type === 'number' && fieldId === 'aging' && value !== '' && value != null) {
+      const bin = getRangeBin('aging', value)
+      title = `${field.label}: ${value} (${bin.label})`
+    } else if (field?.type === 'number' && value !== '' && value != null) {
+      title = `${field?.label || fieldId}: ${value}`
+      if (!description) description = getGenericAttributeDescription()
+    } else {
+      const opt = findOption(fieldId, value)
+      title = opt?.label || value || 'Select an attribute'
     }
 
-    // Fallback description
     if (!description && value) {
       description = getGenericAttributeDescription()
     }
 
-    // Get roleplay tip
-    tip = getRoleplayTip(fieldId, value)
-
     onContextChange({ title, description, tip })
   }
 
-  // Filter fields based on conditionals
-  const visibleFields = sectionData.fields.filter(field => {
+  const visibleFields = sectionData.fields.filter((field) => {
     if (!field.conditional) return true
     return character[field.conditional.field] === field.conditional.value
   })
 
   return (
     <div className="max-w-5xl mx-auto animate-fade-in">
-      {/* Section Header */}
       <div className="mb-8 flex justify-between items-end border-b border-slate-700 pb-4">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1">{sectionData.label}</h2>
@@ -86,9 +77,8 @@ export default function CharacterForm({ section, onContextChange }) {
         </button>
       </div>
 
-      {/* Fields Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-        {visibleFields.map(field => (
+        {visibleFields.map((field) => (
           <FormField
             key={field.id}
             field={field}

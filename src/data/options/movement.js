@@ -1,0 +1,60 @@
+import { opt, naOpt, WEIGHT_RARE } from './shared'
+
+export const movementFieldOptions = {
+  gait: [
+    opt('Staccato', 'Sharp, precise steps. Military, dance, or high anxiety. Takes exactly the space they need.', 'walking with sharp, precise, staccato steps', 'Enters rooms like a count-in. Nervous and confident look similar until you know them.'),
+    opt('Lumbering', 'Heavy, deliberate steps. Raw power or fatigue. Slow to start, hard to stop.', 'a lumbering, heavy, deliberate walk', 'Floors notice them. People get out of the way. Stopping looks like a decision.'),
+    opt('Gliding', 'Upper body stays quiet while they move. Grace, stealth, or arrogance.', 'a gliding walk with a still upper body', 'Looks like a dancer or a thief. Startling them is hard; they were already watching.'),
+    opt('Shuffling', 'Feet rarely leave the ground. Age, timidity, or exhaustion. Trying not to be noticed.', 'a shuffling walk with feet close to the ground', 'Looks like they would like to be furniture. Speed is not the point; survival is.'),
+    opt('Strutting', 'Chest out, chin up. Takes up space. Confidence or overcompensation.', 'a strutting walk with chest out and chin up', 'Wants to be seen. If they are scared, it still looks like a parade.'),
+    opt('Prowling', 'Low center of gravity, predatory awareness. Scanning for threat or prey.', 'a prowling, low, predatory walk', 'Rooms feel hunted. Friends learn not to surprise them from behind.'),
+    opt('Bouncing', 'Spring in the step — youth, caffeine, nerves, or optimism that will not sit.', 'a bouncing, springy walk', 'Looks like they might skip. Exhausting to walk beside. Joy or anxiety — listen to the rest of the sheet.'),
+    opt('Mechanical', 'Repeated, precise motion. Augmented, trained, or emotionally locked.', 'a mechanical, repetitive, precise walk', 'Looks like a program. Empathy has to wait for the animation to finish.'),
+    opt('Slithering', 'Fluid, low, uncanny. Serpentine joints or a body that forgot human hips.', 'a slithering, fluid, low movement style', 'Uncanny in hallways. People step wide. Seduction or horror — lighting decides.'),
+    opt('Floating', 'Barely seems to touch the ground — magic, zero-G habit, aristocracy, or dissociation.', 'a floating walk that barely seems to touch the ground', 'Looks unbothered by gravity. Either holy or checked-out. Footsteps may not match.'),
+  ],
+
+  voice: [
+    opt('Gravelly', 'Smoker, fighter, or sea-captain timbre. Words sound like they cost something.', '', 'People lean in. Whispering still has rocks in it. Softness in this voice is intimate.'),
+    opt('Nasal', 'Sharp, carrying, sometimes comic. Can read as whiny or cutting.', '', 'Cuts through rooms. Easy to mock; they may weaponize that.'),
+    opt('Breathy', 'Intimate by default. Every sentence can feel like a secret or a come-on.', '', 'People blush or get annoyed. Hard to sound official. Lies sound like confessions.'),
+    opt('Booming', 'Fills space without a mic. Command, theater, or volume they cannot quite file down.', '', 'Libraries hate them. They try to whisper and still announce. Authority is cheap; subtlety is expensive.'),
+    opt('Melodic', 'Speech has tune — lilt, rhythm, almost song when feelings rise.', '', 'People remember how they said it more than what. Mockery and seduction both live here.'),
+    opt('Monotone', 'Flat affect: exhaustion, neurodivergence, or iron control.', '', 'Hard to read. Jokes die or land dry. Panic, if it comes, is a key change people notice.'),
+    opt('Strained', 'Held-back emotion or damaged cords. Listening feels like witnessing effort.', '', 'They sound like it hurts to talk. People offer water or back off. Vulnerability is audible.'),
+    opt('Silky', 'Smooth persuasion. Dangerous in negotiations and bedrooms.', '', 'People agree before they mean to. When they go ugly, the contrast is the weapon.'),
+    opt('Raspy', 'Texture from cigarettes, screaming, or old wounds.', '', 'Sounds like a night that lasted. Attractive to some, alarming to others. Coughing is a subplot.'),
+    opt('Squeaky', 'Youth, anxiety, or cartoon contrast with a brutal body.', '', 'Gets underestimated. Anger in this voice is funny until it is not.'),
+    opt('Echoing', 'Supernatural, cavernous, or wrong reverb in a normal room.', '', 'Phone calls sound haunted. People look for the cave. Intimacy is acoustics.'),
+    opt('Telepathic', 'Voice bypasses ears — pressure behind the eyes, borrowed words.', '', 'Talking is optional. Consent for mind-touch is a live wire. Silence can still be loud.'),
+  ],
+
+  scent: [
+    opt('Ozone & Copper', 'Storm air and old pennies. Magical discharge or industrial blood-taste in the nose.', 'a faint smell of ozone and copper', 'People taste weather when they stand close. Magic and blood both get blamed.'),
+    opt('Old Paper & Vanilla', 'Libraries, decay, sweetness. Scholarship or a life indoors.', 'a smell of old paper and vanilla', 'Smells like a bookshop. Comfort or mold — nostalgia decides.'),
+    opt('Woodsmoke & Pine', 'Outdoors. Ranger, traveler, or someone who sleeps under trees.', 'a smell of woodsmoke and pine', 'Brings the trail inside. People want campfire stories they may not have.'),
+    opt('Cheap Perfume & Gin', 'Masking something. Urban, perhaps desperate, perhaps hiding work or grief.', 'a smell of cheap perfume and gin', 'Smells like a night that started too early. Intimacy includes the cover-up.'),
+    opt('Motor Oil & Citrus', 'Mechanic or artificer. Clean but stained. The smell of work.', 'a smell of motor oil and citrus', 'Hands tell the truth even after soap. Competence has an odor.'),
+    opt('Lavender & Dust', 'Calm and abandonment — old linens, dried herbs, a room no one opens.', 'a smell of lavender and dust', 'Smells like a closed house. Comfort with a ghost in it.'),
+    opt('Saltwater & Rot', 'Harbor brine or something drowned that followed them.', 'a smell of saltwater and faint rot', 'People ask if they have been to the sea. The answer may be worse.'),
+    opt('Blood & Iron', 'A warrior who never fully washes combat out.', 'a smell of blood and iron', 'Predators and medics both notice. Dating is a conversation about laundry.'),
+    opt('Fresh Rain', 'Petrichor and a chill. Clean-slate advertising.', 'a smell of fresh rain and petrichor', 'Smells like a reset. Cold even in summer. People trust them too fast.'),
+    opt('Sulfur', 'Brimstone, labs, gunpowder, or infernal paperwork.', 'a smell of sulfur', 'Looks like danger before they speak. Matches and demons both get blamed.'),
+    opt('Nothing/Sterile', 'Antiseptic void — hospital, ship, or dissociation made olfactory.', 'almost no scent, a sterile clean smell', 'Unnerving. People lean in to check they are real. Perfume would be a lie they refuse.'),
+    opt('Alien/Indescribable', 'Wrong notes for human noses — sweet metal, static, geometry-as-smell.', 'an indescribable alien scent that does not map to human references', 'People sneeze, stare, or get a headache. Description fails; reaction does not.', WEIGHT_RARE),
+  ],
+
+  aura: [
+    opt('Warm & Inviting', 'People lean in without knowing why. Openness as weather.', '', 'Strangers tell them things. Exhausting if they did not ask to be a fireplace.'),
+    opt('Cold & Distant', 'Respect or unease at arm\'s length. Warmth withheld or frozen.', '', 'People apologize for existing. Intimacy is climate change.'),
+    opt('Electrifying', 'High charge — charisma, danger, or mania. Hair stands up metaphorically.', '', 'Rooms get louder. They leave people buzzing or fried.'),
+    opt('Calming', 'Lowers heart rates. Therapeutic or eerie depending on intent.', '', 'Children and animals pick them. Panic looks rude next to them. They may be hiding a storm.'),
+    opt('Menacing', 'Threat in stillness. Violence suggested, not performed.', '', 'Jokes die. People give them the wide berth. Being kind in this aura is a power move.'),
+    opt('Mysterious', 'Hard to read on purpose. Silence as costume.', '', 'People fill in the blanks wrongly. They let them. Curiosity is the tax they collect.'),
+    opt('Chaotic', 'Unpredictable energy — compelling or exhausting, rarely neutral.', '', 'Plans warp around them. Friends are tired and loyal. Enemies cannot aim.'),
+    opt('Regal', 'Assumes deference. Bearing, pause, and voice all say throne.', '', 'People stand up straighter. They may not have a throne. The mismatch is the story.'),
+    opt('Magnetic', 'Pulls attention and desire. Often unaware of the wake.', '', 'Heads turn. They are used to it or newly horrified. Jealousy weather follows.'),
+    opt('Unsettling', 'Something off — too still, too friendly, too knowing.', '', 'Laughter has a hitch. People check the exits. They may not know they are doing it.'),
+    naOpt('None/Mundane', 'Blends into crowds. Power or pain hides in plain sight.', '', 'Not a main-character entrance. They can eavesdrop. Being overlooked is a tool or a wound.', 0.9),
+  ],
+}

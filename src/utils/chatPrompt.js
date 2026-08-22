@@ -2,12 +2,12 @@
  * Compile a texting-roleplay system prompt from the current character.
  */
 
-function selectDisplay(c, id) {
-  const v = c?.[id]
-  if (!v) return ''
-  if (v === 'Custom') return String(c[`${id}_custom`] || '').trim()
-  return String(v)
-}
+import { selectDisplay } from './selectDisplay'
+import {
+  compileBehavior,
+  compileChatTrait,
+  compileOceanBehavior,
+} from './compileCharacter'
 
 function line(label, value) {
   const v = String(value ?? '').trim()
@@ -128,15 +128,26 @@ The other person has not given you a name. Do not invent a detailed biography fo
 function adultBlock(character) {
   const c = character || {}
   const lines = [
-    line('Sexual role', selectDisplay(c, 'sexual_role')),
-    line('Relationship style', selectDisplay(c, 'relationship_style')),
-    line('Kinks', selectDisplay(c, 'kinks')),
-    line('Turn-ons', selectDisplay(c, 'turn_ons')),
-    line('Turn-offs', selectDisplay(c, 'turn_offs')),
-    line('Intimacy style', selectDisplay(c, 'intimacy_style')),
+    line('Sexual role', compileChatTrait('sexual_role', c)),
+    line('Relationship style', compileChatTrait('relationship_style', c)),
+    line('Kinks', compileChatTrait('kinks', c)),
+    line('Turn-ons', compileChatTrait('turn_ons', c)),
+    line('Turn-offs', compileChatTrait('turn_offs', c)),
+    line('Intimacy style', compileChatTrait('intimacy_style', c)),
   ].filter(Boolean)
   if (!lines.length) return ''
   return `[INTIMACY — ONLY BECAUSE HEAT IS FILTHY]\n${lines.join('\n')}`
+}
+
+function competencyLine(c) {
+  const parts = []
+  for (const id of ['competency_1', 'competency_2', 'competency_3']) {
+    const display = selectDisplay(c, id)
+    if (!display || display === 'None') continue
+    parts.push(compileBehavior(id, c) || display)
+  }
+  if (!parts.length) return ''
+  return line('What they can actually talk about', parts.join(' '))
 }
 
 /**
@@ -171,32 +182,61 @@ export function composeChatSystemPrompt({
 
   const identity = [
     line('Name', name),
-    line('Species', selectDisplay(c, 'species')),
-    line('Origin', selectDisplay(c, 'origin')),
+    line('Species', compileChatTrait('species', c)),
+    line('Origin', compileChatTrait('origin', c)),
     line('Age', c.age),
-    line('Default outfit', selectDisplay(c, 'default_outfit')),
+    line('Occupation', compileChatTrait('occupation', c)),
+    line('Class', compileChatTrait('socioeconomic_class', c)),
+    competencyLine(c),
+    line('Default outfit', compileChatTrait('default_outfit', c)),
+    line('How they present', compileChatTrait('gender_expression', c)),
   ].filter(Boolean).join('\n')
 
   const voice = [
-    line('Speech', speech),
-    line('Voice', selectDisplay(c, 'voice')),
-    line('Humor', selectDisplay(c, 'humor')),
-    line('Tic', selectDisplay(c, 'tic')),
-    line('Social battery', selectDisplay(c, 'battery')),
+    line('Speech', compileChatTrait('speech_style', c)),
+    line('Voice', compileChatTrait('voice', c)),
+    line('Humor', compileChatTrait('humor', c)),
+    line('Tic', compileChatTrait('tic', c)),
+    line('Social battery', compileChatTrait('battery', c)),
+    line('How they take up a room', compileChatTrait('dynamic', c)),
   ].filter(Boolean).join('\n')
 
+  const presence = [
+    line('How they move (subtext)', compileChatTrait('gait', c)),
+    line('The feeling they give off (subtext)', compileChatTrait('aura', c)),
+  ].filter(Boolean).join('\n')
+
+  const behavior = [
+    compileOceanBehavior(c),
+    compileBehavior('personality', c),
+    compileBehavior('enneagram', c),
+    compileBehavior('attachment', c),
+    compileBehavior('coping', c),
+    compileBehavior('values', c),
+    compileBehavior('alignment', c),
+  ].filter(Boolean)
+
   const interior = [
-    line('The lie they believe (show, do not name)', selectDisplay(c, 'lie')),
-    line('Fear (subtext, do not announce)', selectDisplay(c, 'fear')),
-    line('Goal (do not dump as a quest log)', selectDisplay(c, 'goal')),
-    line('Trauma (lived, not a label)', selectDisplay(c, 'trauma')),
-    line('Personality (demonstrate)', selectDisplay(c, 'personality')),
+    line('The lie they believe (show, do not name)', compileChatTrait('lie', c)),
+    line('Fear (subtext, do not announce)', compileChatTrait('fear', c)),
+    line('Goal (do not dump as a quest log)', compileChatTrait('goal', c)),
+    line('Secret desire (subtext)', compileChatTrait('desire', c)),
+    line('Trauma (lived, not a label)', compileChatTrait('trauma', c)),
+    line('Quirk (show, do not announce)', compileChatTrait('quirk', c)),
+    line('Moral line (subtext)', compileChatTrait('moral_code', c)),
+    line('Bias (leak, do not speechify)', compileChatTrait('prejudice', c)),
   ].filter(Boolean).join('\n')
 
   const adult = s.heat === 'filthy' ? adultBlock(c) : ''
 
   const look = visualLine
     ? `[LOOK]\nYou look like: ${visualLine}. Do not volunteer a photo of it.`
+    : ''
+
+  const behaviorBlock = behavior.length
+    ? `[HOW YOU ACT — NEVER NAME TYPES]
+These are behavioral instructions, not labels to dump. Do not say MBTI, Enneagram, alignment, OCEAN, or Big Five.
+${behavior.map((b) => `- ${b}`).join('\n')}`
     : ''
 
   return `You are engaging in a first-person TEXT MESSAGE roleplay.
@@ -219,6 +259,10 @@ ${identity || '- (sparse sheet)'}
 
 [VOICE]
 ${voice || '- Talk like a person with a phone.'}
+
+${presence ? `[PRESENCE — SUBTEXT]\n${presence}` : ''}
+
+${behaviorBlock}
 
 [INTERIOR — SUBTEXT]
 ${interior || '- Have an inner life. Do not recap a wiki.'}

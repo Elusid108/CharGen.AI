@@ -11,6 +11,9 @@ import {
   includeAdultInStoryBible,
   LENS_INSTRUCTIONS,
 } from './storyBible'
+import { selectDisplay } from './selectDisplay'
+import { compileImageLine } from './compileCharacter'
+import { optionLabels } from '../data/options'
 
 // --- Text Generation (Gemini) ---
 
@@ -95,109 +98,6 @@ export function parseJsonFromModelText(text) {
       throw new Error('Model response did not contain valid JSON')
     }
     return JSON.parse(s.slice(start, end + 1))
-  }
-}
-
-function buildCharacterFieldSpecFromSchema(schema) {
-  const fields = []
-  for (const section of Object.values(schema)) {
-    for (const field of section.fields) {
-      const entry = { id: field.id, type: field.type }
-      if (field.conditional) {
-        entry.onlyWhen = { field: field.conditional.field, equals: field.conditional.value }
-      }
-      if (field.type === 'select') entry.options = [...field.options]
-      if (field.type === 'range') {
-        entry.min = field.min ?? 0
-        entry.max = field.max ?? 100
-      }
-      if (field.type === 'number') {
-        if (field.id === 'age') {
-          entry.min = 18
-          entry.max = 80
-        } else if (field.min !== undefined || field.max !== undefined) {
-          entry.min = field.min ?? 0
-          entry.max = field.max ?? 9999
-        }
-      }
-      fields.push(entry)
-    }
-  }
-  return fields
-}
-
-const CHARACTER_PROFILE_SYSTEM_PROMPT = `You are an expert character designer for fiction and games. Your task is to invent one cohesive original character.
-
-You MUST output a single JSON object only. No markdown, no code fences, no commentary before or after the JSON.
-
-CRITICAL — Demographic Consistency:
-- If Gender Identity is "Transgender Man", Biological Sex MUST be "Female".
-- If Gender Identity is "Transgender Woman", Biological Sex MUST be "Male".
-- For cisgender alignment: if gender is "Man", biological sex should be "Male"; if "Woman", biological sex should be "Female". For other gender identities, keep sex and gender logically consistent with the definitions above.
-
-CRITICAL — Psychological Consistency (MBTI and OCEAN Big Five):
-- Choose an MBTI type first, then set OCEAN sliders (0–100) so they align: E = high Extraversion, I = low Extraversion. N = high Openness, S = low Openness. F = high Agreeableness, T = low Agreeableness. J = high Conscientiousness, P = low Conscientiousness.
-- Neuroticism (ocean_n) is not determined by MBTI letters; set it freely for character depth.
-
-CRITICAL — Narrative quality:
-- Text fields such as race_custom, ethnicity_custom, origin_custom, goal, fear, desire, trauma, quirk, moral_code, prejudice, scars, distinguishing features, kinks, etc. must be highly creative, specific, and non-cliché. Avoid generic phrases.
-
-Rules for the JSON:
-- Every key listed in the field specification must appear exactly once.
-- For "select" fields, values MUST be copied verbatim from the allowed options list.
-- For "range" fields, use integers within the given min/max.
-- For "text" fields, use strings; use "" if nothing applies.
-- For conditional fields (onlyWhen), use a meaningful string when the condition holds, otherwise "".
-- For "number" field age, use an integer from 18 to 80.
-- For "number" field aging (apparent age), use an integer within the min/max given in the field spec when present.`
-
-/**
- * Ask Gemini for a full character profile as JSON matching the app schema.
- * @param {object} schema — same shape as CHARACTER_SECTIONS
- * @param {string} modelId
- * @param {string} apiKey
- * @param {Record<string, unknown>} currentCharacterState
- * @param {{ freshRandomize?: boolean }} [options]
- * @returns {Promise<Record<string, unknown>>}
- */
-export async function generateCharacterProfile(schema, modelId, apiKey, currentCharacterState, options = {}) {
-  const fieldSpec = buildCharacterFieldSpecFromSchema(schema)
-  const stateSummary = Object.entries(currentCharacterState || {})
-    .filter(([_, v]) => v !== '' && v !== null && v !== undefined)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join('\n')
-
-  const referenceBlock = options.freshRandomize
-    ? `User-LOCKED fields only (must match these values exactly in your JSON). There is no other prior character — treat this as a blank sheet except for these keys:
-${stateSummary || '(none — user locked nothing; every field is a fresh random pick)'}
-
-CRITICAL — No carryover: For every field NOT listed above, pick a value independently from that field's allowed options and constraints in the spec. Do not assume or repeat anatomy or body descriptors from any previous character (e.g. do not default to "Toned" or mirror old traits). Vary body-part and physique selects across the full option lists.`
-    : `Optional tone reference from the user's current sheet (you may ignore or diverge):
-${stateSummary || '(empty)'}`
-
-  const userPrompt = `Generate one new random character. Return ONLY valid JSON (no markdown, no code fences).
-
-Field specification (each object describes one character attribute):
-${JSON.stringify(fieldSpec)}
-
-${referenceBlock}
-
-Remember: every field id in the spec must be present in your JSON object with a valid value for its type and constraints.`
-
-  const raw = await generateText(apiKey, CHARACTER_PROFILE_SYSTEM_PROMPT, userPrompt, {
-    temperature: 0.95,
-    modelId,
-  })
-
-  try {
-    const parsed = parseJsonFromModelText(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('Parsed JSON is not an object')
-    }
-    return parsed
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    throw new Error(`Failed to parse character JSON: ${msg}`)
   }
 }
 
@@ -439,70 +339,19 @@ export async function generateImage(apiKey, prompt, options = {}) {
 
 // --- Prompt helpers: translate numeric stats to visual descriptions ---
 
-function describeMuscleDef(val) {
-  const v = parseInt(val)
-  if (isNaN(v) || v <= 0) return null
-  if (v < 20) return 'very soft body with no visible muscle definition'
-  if (v < 40) return 'lightly toned body with subtle muscle shape'
-  if (v < 60) return 'athletic body with visible muscle tone and some ab definition'
-  if (v < 80) return 'muscular body with clearly defined muscles, visible abs and arm veins'
-  return 'extremely muscular and ripped body with deep muscle striations and prominent vascularity'
-}
-
-/** Muscle as garment drape only — never an instruction to expose abs. */
-function describeMuscleDefSilhouette(val) {
-  const v = parseInt(val)
-  if (isNaN(v) || v <= 0) return null
-  if (v < 20) return 'soft, unathletic silhouette under closed clothing'
-  if (v < 40) return 'lightly athletic silhouette filling closed clothing; no muscle visible through fabric'
-  if (v < 60) return 'athletic silhouette with a filled-out chest and shoulders under closed clothing'
-  if (v < 80) return 'broad muscular silhouette filling closed clothing; bulk suggested by garment drape only, not exposed skin'
-  return 'powerfully built silhouette with wide shoulders and a thick torso under fully covering clothing; do not show abs, veins, or skin through fabric'
-}
-
-function describeVascularity(val) {
-  const v = parseInt(val)
-  if (isNaN(v) || v < 20) return null
-  if (v < 50) return 'subtle veining visible on forearms'
-  if (v < 75) return 'prominent veins on arms and hands'
-  return 'extreme road-map vascularity across arms, chest and abs'
-}
-
-function describeSkinGlisten(val) {
-  const v = parseInt(val)
-  if (isNaN(v) || v < 20) return null
-  if (v < 50) return 'slight sheen on skin'
-  if (v < 75) return 'noticeable sweat glistening on skin'
-  return 'skin drenched in sweat, heavily glistening and reflecting light'
-}
-
-function describeSkinTone(tone, origin) {
-  const o = String(origin ?? '').toLowerCase()
-  if (tone === 'Pale' && o.includes('deep sea')) {
-    return 'vitreous, waxy, sun-deprived pale skin, lacking melanin'
-  }
-  return tone
-}
-
-/** Resolve select + optional *_custom (when value is "Custom"). */
-function selectDisplay(c, id) {
-  const v = c[id]
-  if (!v) return ''
-  if (v === 'Custom') return String(c[`${id}_custom`] || '').trim()
-  return String(v)
-}
-
 function groomingLineRejected(t) {
   return /^None /i.test(t) || t === 'N/A (Non-Human)'
 }
 
 const IDENTITY_PROMPT_SKIP = new Set([
-  'name', 'orientation', 'archetype', 'species', 'sex', 'gender', 'age', 'default_outfit',
+  'name', 'orientation', 'romantic_orientation', 'archetype', 'species', 'sex', 'gender', 'age',
+  'default_outfit', 'genre', 'occupation', 'socioeconomic_class',
+  'competency_1', 'competency_2', 'competency_3', 'transition_note',
 ])
 
 const SILHOUETTE_BODY_PARTS = new Set([
-  'body_hair', 'forearms', 'upper_arms', 'shoulders', 'neck', 'chest_size',
-  'abs', 'back', 'glutes', 'upper_legs', 'lower_legs',
+  'body_hair', 'forearms', 'upper_arms', 'shoulders', 'neck', 'chest_size', 'chest_anatomy',
+  'abs', 'back', 'glutes', 'upper_legs', 'lower_legs', 'silhouette', 'body_softness',
 ])
 
 const COVERAGE_CANONICAL =
@@ -601,84 +450,71 @@ export function buildDetailedPhysicalPrompt(characterState, options = {}) {
   const bodyDetail = bodyDetailOpt ?? (clothingMode === 'canonical' ? 'silhouette' : 'full')
   const c = characterState
   const parts = []
+  const extra = { bodyDetail }
 
   const species = selectDisplay(c, 'species') || 'human'
-  const sex = c.sex ? String(c.sex) : ''
-  const gender = c.gender ? String(c.gender) : ''
+  const sex = selectDisplay(c, 'sex')
+  const gender = String(c.gender || '')
   const age = c.age !== '' && c.age != null ? String(c.age) : ''
   const apparent = c.aging !== '' && c.aging != null ? String(c.aging) : ''
 
   let opener = `Subject is ${species}`
-  if (sex) opener += `, biological sex ${sex}`
-  if (gender) opener += `, gender identity ${gender}`
+  if (gender === 'Man' || gender === 'Transgender Man') opener += ', a man'
+  else if (gender === 'Woman' || gender === 'Transgender Woman') opener += ', a woman'
+  else if (gender && gender !== 'Custom') opener += `, ${gender}`
+  if (sex && sex !== 'Non-Applicable') opener += `, ${sex} anatomy`
   if (age) opener += `, chronological age ${age}`
   if (apparent) opener += `, apparent age around ${apparent}`
   parts.push(`${opener}.`)
 
-  CHARACTER_SECTIONS.identity.fields.forEach((field) => {
-    if (field.conditional || IDENTITY_PROMPT_SKIP.has(field.id)) return
-    if (field.type === 'select') {
-      const t = selectDisplay(c, field.id)
-      if (t) parts.push(`${field.label}: ${t}.`)
+  const expressionLine = compileImageLine('gender_expression', c, extra)
+  if (expressionLine) parts.push(expressionLine)
+
+  const pushSelectLine = (field, wrapSilhouette = false) => {
+    if (field.conditional || field.type !== 'select') return
+    const display = selectDisplay(c, field.id)
+    if ((field.id === 'mustache' || field.id === 'beard') && groomingLineRejected(display)) return
+    if (field.id === 'body_hair' && (display === 'N/A (Non-Human)' || bodyDetail === 'silhouette')) return
+    const line = compileImageLine(field.id, c, extra)
+    if (!line) return
+    let out = line
+    if (wrapSilhouette && bodyDetail === 'silhouette' && SILHOUETTE_BODY_PARTS.has(field.id)) {
+      out =
+        `Build under closed clothing — ${line} ` +
+        'Suggest this through garment drape only; do not cut, open, or wet clothing to show this anatomy.'
     }
+    if (field.id === 'scars' && display.toLowerCase().includes('implosion')) {
+      out += ' Render as raised, keloid, or indented skin texture rather than mere discoloration.'
+    }
+    if (field.id === 'special_features' && display.toLowerCase().includes('sub-dermal')) {
+      out += ' Render as surgically embedded into the anatomy with skin tension and biomechanical texture.'
+    }
+    parts.push(out)
+  }
+
+  CHARACTER_SECTIONS.identity.fields.forEach((field) => {
+    if (IDENTITY_PROMPT_SKIP.has(field.id)) return
+    pushSelectLine(field)
   })
 
   CHARACTER_SECTIONS.face.fields.forEach((field) => {
-    if (field.conditional || field.id === 'aging') return
-    if (field.type === 'select') {
-      const t = selectDisplay(c, field.id)
-      if (!t) return
-      if ((field.id === 'mustache' || field.id === 'beard') && groomingLineRejected(t)) return
-      parts.push(`${field.label}: ${t}.`)
-    } else if (field.type === 'number') {
-      const t = c[field.id]
-      if (t !== '' && t != null) parts.push(`${field.label}: ${t}.`)
-    }
+    if (field.id === 'aging') return
+    pushSelectLine(field)
   })
 
   CHARACTER_SECTIONS.physical.fields.forEach((field) => {
-    if (field.conditional) return
     if (field.type === 'select') {
-      let t = selectDisplay(c, field.id)
-      if (!t) return
-      if (field.id === 'skin_tone') {
-        t = describeSkinTone(t, selectDisplay(c, 'origin'))
-      }
-      if (field.id === 'body_hair' && t === 'N/A (Non-Human)') return
-      if (bodyDetail === 'silhouette' && field.id === 'body_hair') return
-      let line = `${field.label}: ${t}.`
-      if (bodyDetail === 'silhouette' && SILHOUETTE_BODY_PARTS.has(field.id)) {
-        line =
-          `Build under closed clothing — ${field.label}: ${t}. ` +
-          'Suggest this through garment drape only; do not cut, open, or wet clothing to show this anatomy.'
-      }
-      if (field.id === 'scars' && t.toLowerCase().includes('implosion')) {
-        line +=
-          ' Render as raised, keloid, or indented skin texture rather than mere discoloration.'
-      }
-      if (field.id === 'special_features' && t.toLowerCase().includes('sub-dermal')) {
-        line +=
-          ' Render as surgically embedded into the anatomy with skin tension and biomechanical texture.'
-      }
-      parts.push(line)
-    } else if (field.type === 'range') {
-      if (field.id === 'muscle_def') {
-        const d = bodyDetail === 'silhouette'
-          ? describeMuscleDefSilhouette(c.muscle_def)
-          : describeMuscleDef(c.muscle_def)
-        if (d) parts.push(`${field.label}: ${d}.`)
-      } else if (field.id === 'vascularity') {
-        if (bodyDetail === 'silhouette') return
-        const d = describeVascularity(c.vascularity)
-        if (d) parts.push(`${field.label}: ${d}.`)
-      }
+      pushSelectLine(field, true)
+      return
+    }
+    if (field.type === 'range') {
+      const line = compileImageLine(field.id, c, extra)
+      if (line) parts.push(line)
     }
   })
 
-  if (bodyDetail === 'full') {
-    const glistenDesc = describeSkinGlisten(c.sweat_glisten)
-    if (glistenDesc) parts.push(`Skin surface / sweat: ${glistenDesc}.`)
-  }
+  const glisten = compileImageLine('sweat_glisten', c, extra)
+  if (glisten) parts.push(glisten)
 
   clothingPromptLines(c, { clothingMode, outfitOverride }).forEach((line) => parts.push(line))
 
@@ -952,6 +788,7 @@ ${JSON.stringify(bible, null, 2)}`
 
 export function buildAnalysisPrompt() {
   const template = {}
+  const selectLists = []
   Object.values(CHARACTER_SECTIONS).forEach((section) => {
     section.fields.forEach((field) => {
       if (field.type === 'range') {
@@ -961,6 +798,10 @@ export function buildAnalysisPrompt() {
           typeof field.default === 'number' ? field.default : 25
       } else {
         template[field.id] = '<non-empty string>'
+      }
+      if (field.type === 'select') {
+        const labels = optionLabels(field.id)
+        if (labels.length) selectLists.push(`${field.id}: ${labels.join(' | ')}`)
       }
     })
   })
@@ -975,8 +816,11 @@ export function buildAnalysisPrompt() {
     '- Do not leave any string field blank. Do not use "", "N/A", "empty", or "unknown". Infer the most logical demographic, physical, psychological, narrative, social, and adult traits from visual evidence; when the image cannot directly show something, infer from context, fashion, body language, setting, and archetype.\n' +
     '- All numeric and range fields must be JSON numbers (integers). Ranges use the min/max defined in the app (typically 0–100 for sliders).\n' +
     '- For every field whose value is chosen from a fixed list in the app (select fields), the string MUST match one allowed option EXACTLY — same spelling, spacing, and punctuation (including apostrophes).\n' +
+    '- Gender identity (Man/Woman/...) is who they are; sex is anatomy; gender_expression is presentation. Do not treat Transgender Man/Woman as a third gender disjoint from Man/Woman.\n' +
     '- Whenever you set a select field to "Custom", you MUST also fill its matching *_custom field with a concrete, specific description.\n' +
     '- Text fields (names, custom lines, narrative picks) should be vivid, specific, and non-generic.\n\n' +
+    'Allowed select values (copy verbatim):\n' +
+    `${selectLists.join('\n')}\n\n` +
     'The JSON object MUST contain exactly these keys with the indicated types (replace placeholder values with your analysis):\n' +
     jsonShape
   )

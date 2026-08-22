@@ -1,6 +1,20 @@
 import { create } from 'zustand'
 import { getDefaultCharacter, CHARACTER_SECTIONS, CHARACTER_SCHEMA_VERSION, emptyGeneratedImages } from '../data/schemas'
-import { randomFrom, randomRange, randomName } from '../data/randomPools'
+import { randomRange, randomName } from '../data/randomPools'
+import { normalizeSelectOptions, pickWeightedFrom } from '../data/options'
+import {
+  genreWeightMultiplier,
+  SILHOUETTE_TEMPLATES,
+  extraversionToBattery,
+  correlateChestAnatomy,
+  correlateGenderExpression,
+  correlateTransitionNote,
+  correlateRomanticFromSexual,
+  speciesSpecialFeatureWeight,
+  HAIRLESS_SPECIES,
+  OFTEN_HAIRLESS_SPECIES,
+  apparentAgeFromChronological,
+} from '../data/options/priors'
 import { generateId } from '../utils/imageUtils'
 import { getSetting, saveSetting } from '../utils/db'
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
@@ -21,8 +35,29 @@ function buildFieldById() {
 
 const FIELD_BY_ID = buildFieldById()
 
-function randomSelectValue(field) {
-  return randomFrom(field.options)
+function optionWeightForField(field, option, character) {
+  const genre = character?.genre || 'Mixed'
+  const species = character?.species
+  let w = option.weight ?? 1
+  w *= genreWeightMultiplier(genre, field.id, option.id)
+  if (field.id === 'special_features' && species) {
+    w *= speciesSpecialFeatureWeight(species, option.id)
+  }
+  if (species === 'Human' || species === 'Elf' || species === 'Dwarf') {
+    if (field.id === 'skin_tone' && (option.id === 'Scaled' || option.id === 'Furred')) w *= 0.08
+    if (
+      field.id === 'skin_texture'
+      && (option.id === 'Scaled' || option.id === 'Furred' || option.id === 'Chitin' || option.id === 'Crystalline' || option.id === 'Bark-like')
+    ) {
+      w *= 0.1
+    }
+  }
+  return w
+}
+
+function randomSelectValue(field, character = {}) {
+  const options = normalizeSelectOptions(field.options)
+  return pickWeightedFrom(options, (o) => optionWeightForField(field, o, character))
 }
 
 function pickLockedFromCharacter(character, lockedFields) {
@@ -38,15 +73,18 @@ function pickLockedFromCharacter(character, lockedFields) {
  * @param {{ skipLocalTextForLlm?: boolean }} [opts] — when true, leave `name` empty for hybrid LLM fill
  */
 function randomValueForField(field, opts = {}) {
-  const { skipLocalTextForLlm = false } = opts
+  const { skipLocalTextForLlm = false, character = {} } = opts
   switch (field.type) {
     case 'select':
-      return randomSelectValue(field)
+      return randomSelectValue(field, character)
     case 'range':
       return randomRange(field.min ?? 0, field.max ?? 100)
     case 'number':
       if (field.id === 'age') return randomRange(18, 80)
       if (field.id === 'aging') {
+        if (character.age !== '' && character.age != null) {
+          return apparentAgeFromChronological(character.age, character.species)
+        }
         const lo = field.min ?? 1
         const hi = field.max ?? 120
         return randomRange(lo, hi)
@@ -61,6 +99,86 @@ function randomValueForField(field, opts = {}) {
     default:
       return undefined
   }
+}
+
+const REGION_FIELD_IDS = [
+  'forearms', 'upper_arms', 'shoulders', 'neck', 'chest_size',
+  'abs', 'back', 'glutes', 'upper_legs', 'lower_legs',
+]
+
+function applyRandomizeCorrelations(next, lockedFields, hints = {}) {
+  const locked = (id) => !!lockedFields[id]
+  const out = { ...next }
+  const rolledSet = hints.rolled ? new Set(hints.rolled) : null
+  const touched = (...ids) => !rolledSet || ids.some((id) => rolledSet.has(id))
+
+  if (touched('aging', 'age') && !locked('aging') && out.age !== '' && out.age != null) {
+    out.aging = apparentAgeFromChronological(out.age, out.species)
+  }
+
+  if (touched('battery', 'ocean_e') && !locked('battery') && out.ocean_e != null && out.ocean_e !== '') {
+    out.battery = extraversionToBattery(out.ocean_e)
+  }
+
+  const template = SILHOUETTE_TEMPLATES[out.silhouette]
+  if (
+    template
+    && touched('silhouette', ...REGION_FIELD_IDS, 'muscle_def', 'body_softness')
+  ) {
+    for (const [id, val] of Object.entries(template)) {
+      if (locked(id)) continue
+      if (id === 'muscle_def' || id === 'body_softness') {
+        const [lo, hi] = val
+        out[id] = randomRange(lo, hi)
+      } else {
+        out[id] = val
+      }
+    }
+    if (Math.random() < 0.3) {
+      const pick = REGION_FIELD_IDS[Math.floor(Math.random() * REGION_FIELD_IDS.length)]
+      const field = FIELD_BY_ID[pick]
+      if (field && !locked(pick)) {
+        out[pick] = randomSelectValue(field, out)
+      }
+    }
+  }
+
+  const species = out.species
+  const forceNa = HAIRLESS_SPECIES.has(species)
+    || (OFTEN_HAIRLESS_SPECIES.has(species) && Math.random() < 0.55)
+  if (forceNa && touched('body_hair', 'mustache', 'beard', 'species')) {
+    if (!locked('body_hair')) out.body_hair = 'N/A (Non-Human)'
+    if (!locked('mustache')) out.mustache = 'N/A (Non-Human)'
+    if (!locked('beard')) out.beard = 'N/A (Non-Human)'
+  }
+
+  if (touched('chest_anatomy', 'sex') && !locked('chest_anatomy') && out.sex) {
+    out.chest_anatomy = correlateChestAnatomy(out.sex)
+  }
+
+  if (touched('gender_expression', 'gender') && !locked('gender_expression') && out.gender && Math.random() < 0.7) {
+    const expr = correlateGenderExpression(out.gender)
+    if (expr) out.gender_expression = expr
+  }
+
+  if (touched('transition_note', 'gender') && !locked('transition_note') && out.gender) {
+    out.transition_note = correlateTransitionNote(out.gender)
+  }
+
+  if (touched('romantic_orientation', 'orientation') && !locked('romantic_orientation') && out.orientation && Math.random() < 0.75) {
+    const rom = correlateRomanticFromSexual(out.orientation)
+    if (rom) out.romantic_orientation = rom
+  }
+
+  if (touched('sexual_role', 'sex') && !locked('sexual_role') && (out.sex === 'None/Construct' || out.sex === 'Non-Applicable')) {
+    if (Math.random() < 0.75) out.sexual_role = 'N/A'
+  }
+
+  if (touched('special_features', 'species') && !locked('special_features') && species === 'Human' && Math.random() < 0.82) {
+    out.special_features = 'Fully humanoid baseline'
+  }
+
+  return out
 }
 
 function fieldSkippedForRandomize(field, lockedFields) {
@@ -81,12 +199,12 @@ function buildLocalRandomizedCharacter(lockedFields, character, options = {}) {
   Object.entries(CHARACTER_SECTIONS).forEach(([_sectionId, section]) => {
     section.fields.forEach((field) => {
       if (fieldSkippedForRandomize(field, lockedFields)) return
-      const val = randomValueForField(field, { skipLocalTextForLlm })
+      const val = randomValueForField(field, { skipLocalTextForLlm, character: nextCharacter })
       if (val !== undefined) nextCharacter[field.id] = val
     })
   })
 
-  return nextCharacter
+  return applyRandomizeCorrelations(nextCharacter, lockedFields)
 }
 
 /** Merge section updates and clear `*_custom` when a rolled select is no longer Custom. */
@@ -211,12 +329,28 @@ export function migrateSavedCharacter(saved) {
     images.tpose = null
   }
 
+  const attributes = { ...getDefaultCharacter(), ...(saved.attributes || {}) }
+  if (version < 5) {
+    if (!attributes.gender_expression) {
+      attributes.gender_expression = correlateGenderExpression(attributes.gender) || ''
+    }
+    if (!attributes.transition_note) {
+      attributes.transition_note =
+        attributes.gender === 'Transgender Man' || attributes.gender === 'Transgender Woman'
+          ? 'Post-transition'
+          : 'None noted'
+    }
+    if (!attributes.romantic_orientation && attributes.orientation && attributes.orientation !== 'Asexual') {
+      attributes.romantic_orientation = correlateRomanticFromSexual(attributes.orientation) || ''
+    }
+  }
+
   return {
     ...saved,
     generatedImages: images,
     presentationMode: saved.presentationMode === 'thirst' ? 'thirst' : 'canonical',
     schemaVersion: CHARACTER_SCHEMA_VERSION,
-    attributes: { ...getDefaultCharacter(), ...(saved.attributes || {}) },
+    attributes,
     chatCanon: typeof saved.chatCanon === 'string' ? saved.chatCanon : '',
     chat: normalizeChatState(saved.chat),
   }
@@ -446,13 +580,25 @@ export const useCharacterStore = create((set, get) => ({
     const toast = useToastStore.getState().addToast
 
     const updates = {}
+    const draft = { ...character }
     section.fields.forEach((field) => {
       if (fieldSkippedForRandomize(field, lf)) return
-      const val = randomValueForField(field, { skipLocalTextForLlm: hasKey })
-      if (val !== undefined) updates[field.id] = val
-      else if (hasKey && field.type === 'text' && field.id === 'name') {
+      const val = randomValueForField(field, { skipLocalTextForLlm: hasKey, character: draft })
+      if (val !== undefined) {
+        updates[field.id] = val
+        draft[field.id] = val
+      } else if (hasKey && field.type === 'text' && field.id === 'name') {
         updates.name = ''
+        draft.name = ''
       }
+    })
+
+    const correlated = applyRandomizeCorrelations({ ...character, ...updates }, lf, {
+      rolled: Object.keys(updates),
+    })
+    Object.keys(correlated).forEach((id) => {
+      if (lf[id]) return
+      if (correlated[id] !== character[id]) updates[id] = correlated[id]
     })
 
     const merged = mergeCharacterWithSelectCleanup(character, updates)
