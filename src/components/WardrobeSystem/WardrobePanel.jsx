@@ -8,11 +8,11 @@ import { generateImage as callGenerateImage, buildImagePrompt } from '../../util
 import { getImageEndpointForModel } from '../../utils/models'
 import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
 import {
-  resolveIdentityLock,
+  resolveWardrobeReference,
   modelSupportsReferenceImages,
   mergeNegativePrompt,
 } from '../../utils/imageGeneration'
-import { downloadImage, base64ToDataUrl, generateId, compressImageBase64, inferImageMime, extensionForImageMime } from '../../utils/imageUtils'
+import { downloadImage, base64ToDataUrl, generateId, compressImageBase64, inferImageMime, extensionForImageMime, aspectClassForRatio } from '../../utils/imageUtils'
 
 const OUTFIT_CATEGORIES = {
   top: ['None/Shirtless', 'T-Shirt', 'Button-Up Shirt', 'Hoodie', 'Tank Top', 'Leather Jacket', 'Blazer', 'Sweater', 'Crop Top', 'Vest', 'Tactical Vest', 'Armor Plate', 'Robe', 'Flannel (Unbuttoned)', 'Corset', 'Cape/Cloak', 'Custom'],
@@ -119,13 +119,17 @@ export default function WardrobePanel() {
       const { selectedImageModel: storeImageModel, generatedImages } = useCharacterStore.getState()
       const modelId = storeImageModel || DEFAULT_IMAGE_MODEL
       const canRef = modelSupportsReferenceImages(availableImageModels, modelId)
-      const lockImage = resolveIdentityLock(generatedImages)
+      const { image: lockImage, source: poseSource } = resolveWardrobeReference(generatedImages)
       const referenceImageBase64 = canRef && lockImage ? lockImage : null
+      if (canRef && poseSource === 'lock') {
+        addToast('No mannequin yet — using the identity lock. Pose may stay T-pose-like. Generate a mannequin in Studio for a natural stance.', 'info', 5000)
+      }
       const extraNegative = mergeNegativePrompt('outfit', presentationMode, '')
 
       const prompt = buildImagePrompt(character, 'outfit', {
         presentationMode,
         hasReferenceImage: !!referenceImageBase64,
+        poseReference: poseSource,
         outfitOverride: fullAttire,
         extraNegative,
       })
@@ -176,7 +180,7 @@ export default function WardrobePanel() {
             Create and manage outfits for your character. Generate images of them in each look.
             {' '}
             <span className="text-slate-500">
-              Uses the T-pose identity lock when one exists.
+              Uses the mannequin pose when one exists, otherwise the T-pose lock.
               Presentation is {presentationMode === 'thirst' ? 'Thirst' : 'Canonical'} (set in Generation Studio).
             </span>
           </p>
@@ -321,12 +325,12 @@ function OutfitCard({ outfit, isGenerating, onGenerate, onDelete, onDownload, on
     <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden group">
       {/* Image Area */}
       <div
-        className="relative h-64 bg-slate-950 flex items-center justify-center cursor-pointer"
+        className={`relative w-full bg-slate-950 overflow-hidden ${aspectClassForRatio('3:4')} ${outfit.image ? 'cursor-pointer' : ''}`}
         onClick={outfit.image ? onFullscreen : undefined}
       >
         {outfit.image ? (
           <>
-            <img src={base64ToDataUrl(outfit.image)} className="w-full h-full object-cover" />
+            <img src={base64ToDataUrl(outfit.image)} alt="" className="absolute inset-0 w-full h-full object-contain" />
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
               <button onClick={(e) => { e.stopPropagation(); onFullscreen() }} className="p-2 bg-black/60 rounded-lg text-white">
                 <Maximize2 size={16} />
@@ -337,8 +341,8 @@ function OutfitCard({ outfit, isGenerating, onGenerate, onDelete, onDownload, on
             </div>
           </>
         ) : (
-          <div className="text-center text-slate-700">
-            <Shirt size={32} className="mx-auto mb-2" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-700">
+            <Shirt size={32} className="mb-2" />
             <p className="text-xs">Not generated</p>
           </div>
         )}

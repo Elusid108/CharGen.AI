@@ -188,7 +188,7 @@ function newCharacterSessionFields() {
 }
 
 /**
- * Normalize a library record (v1 lock migrate, v3 chat fields).
+ * Normalize a library record (v1 lock migrate, v3 chat, v4 front/side/back slots).
  * @param {Record<string, unknown>} saved
  */
 export function migrateSavedCharacter(saved) {

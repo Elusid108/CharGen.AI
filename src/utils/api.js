@@ -690,6 +690,16 @@ const IDENTITY_LOCK_INSTRUCTION =
   'Match face, body, skin, hair, and proportions exactly. Change only pose, camera framing, or clothing as specified. ' +
   'Do not invent a different person.'
 
+const WARDROBE_MANNEQUIN_INSTRUCTION =
+  'POSE LOCK: The attached image is this character in their dress-up stance. ' +
+  'Keep the same relaxed standing pose, camera height, crop, and body. ' +
+  'Change only the clothing to the specified outfit. Do not switch to a T-pose. Do not stretch the arms out to the sides.'
+
+const WARDROBE_FROM_LOCK_INSTRUCTION =
+  'The attached image is identity only (face, body, skin, hair). ' +
+  'Put them in a relaxed natural standing pose with arms down — not a T-pose. ' +
+  'Dress them in the specified outfit. Do not copy outstretched arms or a technical reference pose.'
+
 /**
  * @param {Record<string, unknown>} character
  * @param {string} [imageType]
@@ -701,6 +711,7 @@ const IDENTITY_LOCK_INSTRUCTION =
  *   hasReferenceImage?: boolean,
  *   outfitOverride?: string | null,
  *   extraNegative?: string,
+ *   poseReference?: 'mannequin' | 'lock' | null,
  * }} [styleModifiers]
  */
 export function buildImagePrompt(character, imageType = 'profile', styleModifiers = {}) {
@@ -713,6 +724,7 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
     hasReferenceImage = false,
     outfitOverride = null,
     extraNegative = '',
+    poseReference = null,
   } = styleModifiers
 
   const isBodyLock = BODY_LOCK_IMAGE_TYPES.has(imageType)
@@ -729,7 +741,15 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
   parts.push(`A highly detailed character concept art. ${physical}`)
 
   if (hasReferenceImage) {
-    parts.push(IDENTITY_LOCK_INSTRUCTION)
+    if (imageType === 'outfit') {
+      parts.push(
+        poseReference === 'mannequin'
+          ? WARDROBE_MANNEQUIN_INSTRUCTION
+          : WARDROBE_FROM_LOCK_INSTRUCTION
+      )
+    } else {
+      parts.push(IDENTITY_LOCK_INSTRUCTION)
+    }
   }
 
   if (character.personality) {
@@ -740,45 +760,45 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
     case 'profile':
       parts.push('Framing: Head and shoulders portrait, 1:1 square aspect ratio. Solid dark background.')
       break
-    case 'fullbody': {
-      const gait = character.gait ? String(character.gait).trim() : ''
-      if (gait) {
-        parts.push(
-          `Framing: Full body shot, standing with a ${gait.toLowerCase()} posture and gait. Solid dark background.`
-        )
-      } else {
-        parts.push('Framing: Full body shot, natural relaxed confident pose. Solid dark background.')
-      }
-      break
-    }
     case 'tpose':
       parts.push(
         'Framing: Single character, full body, camera facing the front only. ' +
         'Symmetrical T-pose: both arms extended straight out to the sides, palms facing forward, ' +
-        'legs shoulder-width apart, standing centered. One figure only — not a turnaround sheet. ' +
-        'Clean neutral grey background. Technical character design / identity-lock reference.'
+        'legs shoulder-width apart, standing centered. One figure only — not a three-view sheet. ' +
+        'Clean neutral grey background. Technical character design / identity-lock FRONT reference.'
       )
       break
-    case 'turnaround':
+    case 'side':
       parts.push(
-        'Framing: A professional character model reference sheet derived from the identity lock. ' +
-        'Three views of the SAME character side by side: front-facing view on the left, ' +
-        'side profile view in the center, rear/back view on the right. ' +
-        'The character stands in a symmetrical T-pose with both arms extended straight out to the sides, ' +
-        'palms facing forward. Legs shoulder-width apart. ' +
-        'Clean neutral grey background. Technical character design sheet style. ' +
-        'Consistent proportions across all three views. No other poses.'
+        'Framing: Single character, full body, STRICT left-side view (90 degrees). Camera on their left. ' +
+        'Same symmetrical T-pose as the front lock: both arms extended straight out, legs shoulder-width apart. ' +
+        'True profile silhouette — one eye, ear, and nose; you must not see the chest square-on. ' +
+        'One figure only. Not a three-view sheet. Not front-facing. ' +
+        'Clean neutral grey background. Technical character design / identity-lock SIDE reference.'
+      )
+      break
+    case 'back':
+      parts.push(
+        'Framing: Single character, full body, STRICT rear view (180 degrees). Camera behind them. ' +
+        'Same symmetrical T-pose as the front lock: both arms extended straight out, legs shoulder-width apart. ' +
+        'Face is not visible — back of head, hair, back, and wings if any. ' +
+        'One figure only. Not a three-view sheet. Not front-facing. ' +
+        'Clean neutral grey background. Technical character design / identity-lock BACK reference.'
       )
       break
     case 'mannequin':
       parts.push(
         'Framing: Full body, neutral standing pose (not a T-pose) wearing only simple fitted underwear/briefs. ' +
-        'Clean solid light grey background. Like a mannequin or dress-up doll reference for designing outfits onto. ' +
+        'Arms relaxed at the sides or loosely at rest. Clean solid light grey background. ' +
+        'Like a mannequin or dress-up doll reference for designing outfits onto. ' +
         'Same body as the identity lock; only the pose changes.'
       )
       break
     case 'outfit':
-      parts.push('Framing: Full body shot showing the complete outfit clearly. Solid dark background.')
+      parts.push(
+        'Framing: Full body, relaxed natural standing pose with arms down (not a T-pose), ' +
+        'showing the complete outfit clearly. Solid dark background.'
+      )
       break
     default:
       parts.push('Solid dark cinematic background.')

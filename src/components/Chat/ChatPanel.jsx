@@ -442,7 +442,7 @@ function ChatBubble({ msg, portrait, onOpenImage }) {
             onClick={() => onOpenImage(msg.image)}
             className="block mt-2 overflow-hidden rounded-lg"
           >
-            <img src={base64ToDataUrl(msg.image)} alt="" className="max-h-64 w-full object-cover" />
+            <img src={base64ToDataUrl(msg.image)} alt="" className="max-h-64 w-full object-contain bg-slate-950" />
           </button>
         )}
       </div>

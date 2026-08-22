@@ -1,6 +1,6 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.6.1** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character.
+**v1.6.2** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character.
 
 ## Features
 
@@ -12,16 +12,16 @@
 - **Context panel** with definitions, psychological implications, and roleplay tips
 
 ### Image Generation (Stats → Images)
-Identity is a **front T-pose lock** (3:4, underwear). Everything else is generated from that lock when a Gemini native image model is selected.
+Identity is a **front T-pose lock** (3:4, underwear). Side, back, profile, and mannequin are generated from that lock when a Gemini native image model is selected.
 
-- **Generate All** order: T-pose lock → 16:9 turnaround sheet → profile → full body → mannequin
-- **Five slots**: lock, turnaround, profile (1:1), full body, mannequin (relaxed dress-up pose)
-- **Canonical vs Thirst**: Canonical uses Default Outfit and closed opaque clothing; Thirst uses Intimate Attire. Lock / turnaround / mannequin stay body-canon underwear shots
+- **Generate All** order: front T-pose lock → side → back → profile → mannequin
+- **Slots**: front lock, side, back, profile (1:1), mannequin (relaxed dress-up pose)
+- **Canonical vs Thirst**: Canonical uses Default Outfit on clothed shots (profile, wardrobe); Thirst uses Intimate Attire. Front / side / back / mannequin stay body-canon underwear shots
 - **Art style, lighting, and mood** modifiers, plus an Exclude box (Canonical also appends coverage negatives)
-- **Wardrobe outfits** use the same lock and presentation mode
+- **Wardrobe outfits** use the **mannequin** pose when one exists (T-pose lock only as fallback)
 - Native Gemini image models can take a reference; Imagen `predict` remains text-only (platform limit)
 
-Old library saves without a lock are migrated: the former 16:9 T-pose sheet becomes the turnaround. Generate a new lock for identity.
+Old library saves: a former 16:9 T-pose sheet is still treated as a leftover turnaround (not shown). Generate a new front lock, then side and back.
 
 ### Image Analysis (Images → Stats)
 - **Upload any character image** via drag-and-drop or file picker
@@ -48,13 +48,13 @@ Old library saves without a lock are migrated: the former 16:9 T-pose sheet beco
 
 ### Wardrobe System
 - Multiple saved outfits per character
-- Outfit images generated on the identity lock
+- Outfit images generated on the **mannequin** pose (relaxed stance), not the T-pose lock
 - Respects Canonical / Thirst from Generation Studio
 
 ### Character Library
 - **IndexedDB** — everything stays in the browser
 - **Stable character id** so Save updates the same library row
-- **schemaVersion 3** saves: lock slots, presentation mode, chat canon, chat thread
+- **schemaVersion 4** saves: front/side/back lock slots, mannequin, presentation mode, chat canon, chat thread
 - **JPEG compression** on generated, wardrobe, analysis, and chat images
 - Grid and list views with search, sort, and filter
 - Bulk download (ZIP) and JSON import/export

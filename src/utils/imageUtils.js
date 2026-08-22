@@ -70,6 +70,21 @@ export function base64ToDataUrl(base64, mimeType) {
   return `data:${mimeType || inferImageMime(base64)};base64,${base64}`
 }
 
+/** Tailwind aspect class matching Gemini/Imagen `imageConfig.aspectRatio`. */
+export function aspectClassForRatio(ratio) {
+  switch (String(ratio || '')) {
+    case '16:9':
+      return 'aspect-video'
+    case '1:1':
+      return 'aspect-square'
+    case '4:3':
+      return 'aspect-[4/3]'
+    case '3:4':
+    default:
+      return 'aspect-[3/4]'
+  }
+}
+
 /**
  * Downscale and JPEG-encode for IndexedDB. Skips re-encode when already JPEG under maxEdge.
  * @param {string} base64 raw base64 or data URL

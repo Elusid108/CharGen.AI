@@ -211,14 +211,14 @@ export const CHARACTER_SECTIONS = {
 }
 
 /** Persist this on every library save. Bump when generatedImages or attribute shape changes. */
-export const CHARACTER_SCHEMA_VERSION = 3
+export const CHARACTER_SCHEMA_VERSION = 4
 
 export function emptyGeneratedImages() {
   return {
     profile: null,
-    fullbody: null,
     tpose: null,
-    turnaround: null,
+    side: null,
+    back: null,
     mannequin: null,
   }
 }

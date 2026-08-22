@@ -9,6 +9,7 @@ import { useToastStore } from '../../hooks/useToast'
 import { getAllCharacters, deleteCharacter, deleteMultipleCharacters, saveCharacter } from '../../utils/db'
 import { downloadImage, base64ToDataUrl, generateId, inferImageMime, extensionForImageMime, stripBase64Prefix } from '../../utils/imageUtils'
 import { migrateSavedCharacter } from '../../hooks/useCharacter'
+import { resolveLibraryThumbnail } from '../../utils/imageGeneration'
 import JSZip from 'jszip'
 
 export default function LibraryPanel() {
@@ -361,7 +362,7 @@ export default function LibraryPanel() {
 }
 
 function CharacterCard({ char, selectionMode, isSelected, onSelect, onDelete, onFullscreen }) {
-  const profileImg = char.generatedImages?.profile
+  const thumb = resolveLibraryThumbnail(char.generatedImages)
   const attrs = char.attributes || {}
 
   return (
@@ -371,12 +372,15 @@ function CharacterCard({ char, selectionMode, isSelected, onSelect, onDelete, on
         isSelected ? 'border-purple-500 ring-2 ring-purple-500/20' : 'border-slate-700'
       }`}
     >
-      {/* Image */}
-      <div className="h-40 bg-slate-950 relative overflow-hidden">
-        {profileImg ? (
-          <img src={base64ToDataUrl(profileImg)} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
+      <div className="aspect-square bg-slate-950 relative overflow-hidden">
+        {thumb ? (
+          <img
+            src={base64ToDataUrl(thumb)}
+            alt=""
+            className="absolute inset-0 w-full h-full object-contain opacity-80 group-hover:opacity-100 transition-opacity"
+          />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-800">
+          <div className="absolute inset-0 flex items-center justify-center text-slate-800">
             <BookMarked size={40} />
           </div>
         )}
@@ -438,7 +442,7 @@ function CharacterCard({ char, selectionMode, isSelected, onSelect, onDelete, on
 }
 
 function CharacterListItem({ char, selectionMode, isSelected, onSelect, onDelete }) {
-  const profileImg = char.generatedImages?.profile
+  const thumb = resolveLibraryThumbnail(char.generatedImages)
   const attrs = char.attributes || {}
 
   return (
@@ -456,9 +460,9 @@ function CharacterListItem({ char, selectionMode, isSelected, onSelect, onDelete
         </div>
       )}
 
-      <div className="w-10 h-10 rounded bg-slate-800 overflow-hidden shrink-0">
-        {profileImg ? (
-          <img src={base64ToDataUrl(profileImg)} className="w-full h-full object-cover" />
+      <div className="w-12 h-12 rounded bg-slate-800 overflow-hidden shrink-0">
+        {thumb ? (
+          <img src={base64ToDataUrl(thumb)} alt="" className="w-full h-full object-cover object-top" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-slate-700">
             <BookMarked size={16} />

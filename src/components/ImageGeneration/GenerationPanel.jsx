@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Image, User, RotateCcw, Shirt, Camera, Download, Maximize2,
-  PenLine, BookOpen, X, Layers, LayoutGrid,
+  User, RotateCcw, Shirt, Camera, Download, Maximize2,
+  PenLine, BookOpen, X, Layers, ArrowLeftRight, Redo,
 } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
@@ -15,17 +15,18 @@ import {
 } from '../../utils/imageGeneration'
 import { ART_STYLES, LIGHTING_OPTIONS, MOOD_OPTIONS } from '../../data/schemas'
 import { NARRATIVE_LENSES, guessGenreFromCharacter, pickNarrativeLens } from '../../utils/storyBible'
-import { downloadImage, base64ToDataUrl, compressImageBase64, inferImageMime, extensionForImageMime } from '../../utils/imageUtils'
+import { downloadImage, base64ToDataUrl, compressImageBase64, inferImageMime, extensionForImageMime, aspectClassForRatio } from '../../utils/imageUtils'
 
 const IMAGE_TYPES = [
-  { id: 'tpose', label: 'T-Pose Lock', icon: RotateCcw, ratio: '3:4', description: 'Front identity lock', featured: true },
-  { id: 'turnaround', label: 'Turnaround Sheet', icon: LayoutGrid, ratio: '16:9', description: 'Front, side, back views' },
+  { id: 'tpose', label: 'T-Pose Lock', icon: RotateCcw, ratio: '3:4', description: 'Front identity lock', lockBadge: true },
+  { id: 'side', label: 'Side View', icon: ArrowLeftRight, ratio: '3:4', description: 'T-pose from the left' },
+  { id: 'back', label: 'Back View', icon: Redo, ratio: '3:4', description: 'T-pose from behind' },
   { id: 'profile', label: 'Profile (1:1)', icon: User, ratio: '1:1', description: 'Head & shoulders portrait' },
-  { id: 'fullbody', label: 'Full Body', icon: Image, ratio: '3:4', description: 'Relaxed natural pose' },
   { id: 'mannequin', label: 'Mannequin Base', icon: Shirt, ratio: '3:4', description: 'Relaxed underwear pose' },
 ]
 
-const GENERATE_ALL_ORDER = ['tpose', 'turnaround', 'profile', 'fullbody', 'mannequin']
+const GENERATE_ALL_ORDER = ['tpose', 'side', 'back', 'profile', 'mannequin']
+const BODY_SHEET_ORDER = ['tpose', 'side', 'back', 'mannequin']
 
 const STORY_LENGTHS = [
   { label: 'Short Vignette (1 paragraph)', value: 'Short Vignette' },
@@ -81,6 +82,8 @@ export default function GenerationPanel() {
   const [generatingHooks, setGeneratingHooks] = useState(false)
 
   const isAnyGenerating = generatingTypes.size > 0
+  const hasIdentityLock = !!generatedImages?.tpose
+  const canRegenIndividual = hasIdentityLock && !isGeneratingAll
 
   useEffect(() => {
     if (genreTouched) return
@@ -105,6 +108,10 @@ export default function GenerationPanel() {
     const { batchReferenceBase64, fromBatch = false } = options
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
+      return null
+    }
+    if (!fromBatch && !useCharacterStore.getState().generatedImages?.tpose) {
+      addToast('Use Generate All first so the T-pose lock is created.', 'warning')
       return null
     }
 
@@ -255,117 +262,123 @@ export default function GenerationPanel() {
       {/* Character Sheet Summary */}
       <CharacterSummary character={character} />
 
-      {/* Generation Controls */}
-      <div className="glass-panel p-6">
-        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-          <Camera size={18} className="text-purple-400" />
-          Image Generation Controls
-        </h3>
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-6 items-start">
+        {/* Generation Controls */}
+        <div className="glass-panel p-6">
+          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <Camera size={18} className="text-purple-400" />
+            Image Generation Controls
+          </h3>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-          <div>
-            <label className="section-heading mb-1 block">Presentation</label>
-            <div className="flex rounded-lg border border-slate-700 overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setPresentationMode('canonical')}
-                className={`flex-1 py-2 text-xs font-medium transition-colors ${
-                  presentationMode !== 'thirst'
-                    ? 'bg-blue-600/30 text-blue-200'
-                    : 'bg-slate-900 text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                Canonical
-              </button>
-              <button
-                type="button"
-                onClick={() => setPresentationMode('thirst')}
-                className={`flex-1 py-2 text-xs font-medium transition-colors ${
-                  presentationMode === 'thirst'
-                    ? 'bg-amber-600/30 text-amber-200'
-                    : 'bg-slate-900 text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                Thirst
-              </button>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="section-heading mb-1 block">Presentation</label>
+              <div className="flex rounded-lg border border-slate-700 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setPresentationMode('canonical')}
+                  className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                    presentationMode !== 'thirst'
+                      ? 'bg-blue-600/30 text-blue-200'
+                      : 'bg-slate-900 text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  Canonical
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresentationMode('thirst')}
+                  className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                    presentationMode === 'thirst'
+                      ? 'bg-amber-600/30 text-amber-200'
+                      : 'bg-slate-900 text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  Thirst
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="section-heading mb-1 block">Art Style</label>
+              <select value={artStyle} onChange={e => setArtStyle(e.target.value)} className="input-field w-full text-xs">
+                {ART_STYLES.map((s, i) => <option key={i} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="section-heading mb-1 block">Lighting</label>
+              <select value={lighting} onChange={e => setLighting(e.target.value)} className="input-field w-full text-xs">
+                {LIGHTING_OPTIONS.map((l, i) => <option key={i} value={l.value}>{l.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="section-heading mb-1 block">Mood</label>
+              <select value={mood} onChange={e => setMood(e.target.value)} className="input-field w-full text-xs">
+                {MOOD_OPTIONS.map((m, i) => <option key={i} value={m.value}>{m.label}</option>)}
+              </select>
             </div>
           </div>
-          <div>
-            <label className="section-heading mb-1 block">Art Style</label>
-            <select value={artStyle} onChange={e => setArtStyle(e.target.value)} className="input-field w-full text-xs">
-              {ART_STYLES.map((s, i) => <option key={i} value={s.value}>{s.label}</option>)}
-            </select>
+
+          <div className="mb-4">
+            <label className="section-heading mb-1 block">Exclude</label>
+            <input
+              value={negativePrompt}
+              onChange={e => setNegativePrompt(e.target.value)}
+              placeholder="Blurry, low quality..."
+              className="input-field w-full text-xs"
+            />
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              {presentationMode === 'thirst'
+                ? 'Thirst mode uses Intimate Attire from the Mature sheet and full body detail. '
+                : 'Canonical mode uses Default Outfit (Identity) and keeps garments closed. '}
+              First pass is Generate All (T-pose lock first). After that you can regenerate individual shots. Wardrobe uses the mannequin pose.
+            </p>
           </div>
-          <div>
-            <label className="section-heading mb-1 block">Lighting</label>
-            <select value={lighting} onChange={e => setLighting(e.target.value)} className="input-field w-full text-xs">
-              {LIGHTING_OPTIONS.map((l, i) => <option key={i} value={l.value}>{l.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="section-heading mb-1 block">Mood</label>
-            <select value={mood} onChange={e => setMood(e.target.value)} className="input-field w-full text-xs">
-              {MOOD_OPTIONS.map((m, i) => <option key={i} value={m.value}>{m.label}</option>)}
-            </select>
-          </div>
+
+          <button
+            type="button"
+            onClick={handleGenerateAll}
+            disabled={isGeneratingAll || isAnyGenerating}
+            className="btn-generate w-full flex items-center justify-center gap-2"
+          >
+            {isGeneratingAll || isAnyGenerating ? (
+              <><div className="loader" /> Generating {generatingTypes.size} image{generatingTypes.size !== 1 ? 's' : ''}...</>
+            ) : (
+              <><Layers size={18} /> Generate All Images</>
+            )}
+          </button>
         </div>
 
-        <div className="mb-4">
-          <label className="section-heading mb-1 block">Exclude</label>
-          <input
-            value={negativePrompt}
-            onChange={e => setNegativePrompt(e.target.value)}
-            placeholder="Blurry, low quality..."
-            className="input-field w-full text-xs"
-          />
-          <p className="text-[11px] text-slate-500 mt-1.5">
-            {presentationMode === 'thirst'
-              ? 'Thirst mode uses Intimate Attire from the Mature sheet and full body detail.'
-              : 'Canonical mode uses Default Outfit (Identity) and keeps garments closed — no abs-through-clothing tricks. Generate All builds the front T-pose lock first, then every other view from that lock.'}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleGenerateAll}
-          disabled={isGeneratingAll || isAnyGenerating}
-          className="btn-generate w-full flex items-center justify-center gap-2"
-        >
-          {isGeneratingAll || isAnyGenerating ? (
-            <><div className="loader" /> Generating {generatingTypes.size} image{generatingTypes.size !== 1 ? 's' : ''}...</>
-          ) : (
-            <><Layers size={18} /> Generate All Images</>
-          )}
-        </button>
-      </div>
-
-      {/* Image Grid — identity lock featured, then the rest */}
-      <div className="space-y-6">
-        {IMAGE_TYPES.filter(t => t.featured).map(type => (
+        {IMAGE_TYPES.filter((t) => t.id === 'profile').map((type) => (
           <ImageCard
             key={type.id}
             type={type}
             image={generatedImages[type.id]}
             isGenerating={generatingTypes.has(type.id)}
+            canGenerate={canRegenIndividual}
             onGenerate={() => handleGenerateImage(type.id)}
             onDownload={() => handleDownload(type.id)}
             onFullscreen={() => setFullscreenImage(generatedImages[type.id])}
-            lockBadge
           />
         ))}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {IMAGE_TYPES.filter(t => !t.featured).map(type => (
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        {BODY_SHEET_ORDER.map((id) => {
+          const type = IMAGE_TYPES.find((t) => t.id === id)
+          return (
             <ImageCard
               key={type.id}
               type={type}
               image={generatedImages[type.id]}
               isGenerating={generatingTypes.has(type.id)}
+              canGenerate={canRegenIndividual}
               onGenerate={() => handleGenerateImage(type.id)}
               onDownload={() => handleDownload(type.id)}
               onFullscreen={() => setFullscreenImage(generatedImages[type.id])}
+              lockBadge={type.lockBadge}
             />
-          ))}
-        </div>
+          )
+        })}
       </div>
 
       {/* Narrative Engine */}
@@ -538,32 +551,34 @@ function CharacterSummary({ character }) {
   )
 }
 
-function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullscreen, lockBadge }) {
+function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullscreen, lockBadge, canGenerate = true }) {
+  const aspectClass = aspectClassForRatio(type.ratio)
+  const generateBlocked = !canGenerate && !isGenerating
   return (
     <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
       <div className="p-3 flex justify-between items-center border-b border-slate-700/50">
-        <div className="flex items-center gap-2">
-          <type.icon size={16} className="text-purple-400" />
-          <span className="text-sm font-bold text-white">{type.label}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <type.icon size={16} className="text-purple-400 shrink-0" />
+          <span className="text-sm font-bold text-white truncate">{type.label}</span>
           {lockBadge && (
-            <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/60">
+            <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/60 shrink-0">
               Identity lock
             </span>
           )}
         </div>
-        <span className="text-[10px] text-slate-500 uppercase">{type.description}</span>
+        <span className="text-[10px] text-slate-500 uppercase shrink-0 ml-2">{type.description}</span>
       </div>
 
       <div
-        className="relative min-h-[280px] bg-slate-950 flex items-center justify-center cursor-pointer group"
+        className={`relative w-full bg-slate-950 overflow-hidden ${aspectClass} ${image ? 'cursor-pointer group' : ''}`}
         onClick={image ? onFullscreen : undefined}
       >
         {image ? (
           <>
             <img
               src={base64ToDataUrl(image)}
-              className="w-full h-full object-cover"
-              style={{ minHeight: 280, maxHeight: 400 }}
+              alt=""
+              className="absolute inset-0 w-full h-full object-contain"
             />
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
               <button
@@ -581,8 +596,8 @@ function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullsc
             </div>
           </>
         ) : (
-          <div className="text-center text-slate-700">
-            <type.icon size={40} className="mx-auto mb-2" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-700">
+            <type.icon size={40} className="mb-2" />
             <p className="text-xs">Not generated yet</p>
           </div>
         )}
@@ -600,10 +615,11 @@ function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullsc
       <div className="p-3">
         <button
           onClick={onGenerate}
-          disabled={isGenerating}
-          className="w-full py-2 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border border-purple-900/30"
+          disabled={isGenerating || generateBlocked}
+          title={generateBlocked ? 'Use Generate All first so the T-pose lock is created.' : undefined}
+          className="w-full py-2 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:hover:bg-purple-600/20 border border-purple-900/30"
         >
-          {isGenerating ? 'Generating...' : image ? 'Regenerate' : 'Generate'}
+          {isGenerating ? 'Generating...' : generateBlocked ? 'Generate All first' : image ? 'Regenerate' : 'Generate'}
         </button>
       </div>
     </div>
