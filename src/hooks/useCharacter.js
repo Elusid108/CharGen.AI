@@ -237,6 +237,7 @@ export const useCharacterStore = create((set, get) => ({
 
   // API Key
   apiKey: '',
+  settingsReady: false,
 
   availableTextModels: [],
   availableImageModels: [],
@@ -264,13 +265,14 @@ export const useCharacterStore = create((set, get) => ({
         getSetting('selectedTextModel'),
         getSetting('selectedImageModel'),
       ])
-      const updates = {}
+      const updates = { settingsReady: true }
       if (key) updates.apiKey = key
       if (textModel) updates.selectedTextModel = textModel
       if (imageModel) updates.selectedImageModel = imageModel
-      if (Object.keys(updates).length) set(updates)
+      set(updates)
     } catch (e) {
       console.error('Failed to load settings:', e)
+      set({ settingsReady: true })
     }
   },
 

@@ -20,12 +20,13 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [contextInfo, setContextInfo] = useState({ title: 'Select an attribute', description: 'Hover over or change any field to see definitions, implications, and tips.' })
   const apiKey = useCharacterStore(s => s.apiKey)
-  const [showSettings, setShowSettings] = useState(!apiKey)
+  const settingsReady = useCharacterStore(s => s.settingsReady)
+  const [showSettings, setShowSettings] = useState(false)
 
-  // Show settings on first launch if no API key
   useEffect(() => {
-    if (!apiKey) setShowSettings(true)
-  }, [apiKey])
+    if (!settingsReady) return
+    if (!apiKey?.trim()) setShowSettings(true)
+  }, [settingsReady, apiKey])
 
   useEffect(() => {
     if (!apiKey?.trim()) return
