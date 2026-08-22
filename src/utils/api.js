@@ -4,7 +4,7 @@
 
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from './modelConstants'
 import { CHARACTER_SECTIONS } from '../data/schemas'
-import { BODY_LOCK_IMAGE_TYPES } from './imageGeneration'
+import { BODY_LOCK_IMAGE_TYPES, characterHasDorsalExtras } from './imageGeneration'
 import { inferImageMime } from './imageUtils'
 import {
   buildStoryBible,
@@ -526,6 +526,36 @@ const IDENTITY_LOCK_INSTRUCTION =
   'Match face, body, skin, hair, and proportions exactly. Change only pose, camera framing, or clothing as specified. ' +
   'Do not invent a different person.'
 
+const BACK_IDENTITY_LOCK_FRONT =
+  'IDENTITY LOCK (REAR VIEW): The attached image is the SAME person (skin, hair, musculature, wing/tail type). ' +
+  'It is a FRONT still — not a pose or layering template. Mentally rotate the body 180 degrees around the vertical axis. ' +
+  'Do not paste the reference\'s left/right wing or tail silhouettes onto this frame. ' +
+  'Do not invent a different person.'
+
+const BACK_IDENTITY_LOCK_SIDE =
+  'IDENTITY LOCK (REAR VIEW): The attached image is a LEFT PROFILE of this exact person. ' +
+  'Rotate the camera 90 degrees to stand directly behind them. Keep skin, hair, musculature, and wing/tail type. ' +
+  'Wings and tails stay on the dorsal back — after this rotation they are closest to the camera, not hidden behind the torso. ' +
+  'Do not invent a different person.'
+
+function dorsalCameraNotes(imageType, character) {
+  if (!characterHasDorsalExtras(character)) return ''
+  if (imageType === 'back') {
+    return (
+      'DORSAL EXTRAS (mandatory): Wings insert on the scapulae of the UPPER BACK. Tails insert at the coccyx. ' +
+      'From this rear camera the dorsal surfaces and attachment roots are IN FRONT of the torso (closest to camera). ' +
+      'The chest, face, and navel are not visible. Do not leave wings or tails in the front-view screen position.'
+    )
+  }
+  if (imageType === 'side') {
+    return (
+      'DORSAL EXTRAS: In this left profile, wings and tails stay on the BACK of the body, behind the torso. ' +
+      'Do not attach them to the chest or abdomen.'
+    )
+  }
+  return ''
+}
+
 const WARDROBE_MANNEQUIN_INSTRUCTION =
   'POSE LOCK: The attached image is this character in their dress-up stance. ' +
   'Keep the same relaxed standing pose, camera height, crop, and body. ' +
@@ -545,6 +575,7 @@ const WARDROBE_FROM_LOCK_INSTRUCTION =
  *   mood?: string,
  *   presentationMode?: 'canonical' | 'thirst',
  *   hasReferenceImage?: boolean,
+ *   referenceView?: 'side' | 'front' | null,
  *   outfitOverride?: string | null,
  *   extraNegative?: string,
  *   poseReference?: 'mannequin' | 'lock' | null,
@@ -558,6 +589,7 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
     mood = '',
     presentationMode = 'canonical',
     hasReferenceImage = false,
+    referenceView = null,
     outfitOverride = null,
     extraNegative = '',
     poseReference = null,
@@ -583,6 +615,8 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
           ? WARDROBE_MANNEQUIN_INSTRUCTION
           : WARDROBE_FROM_LOCK_INSTRUCTION
       )
+    } else if (imageType === 'back') {
+      parts.push(referenceView === 'side' ? BACK_IDENTITY_LOCK_SIDE : BACK_IDENTITY_LOCK_FRONT)
     } else {
       parts.push(IDENTITY_LOCK_INSTRUCTION)
     }
@@ -612,15 +646,23 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
         'One figure only. Not a three-view sheet. Not front-facing. ' +
         'Clean neutral grey background. Technical character design / identity-lock SIDE reference.'
       )
+      {
+        const dorsal = dorsalCameraNotes('side', character)
+        if (dorsal) parts.push(dorsal)
+      }
       break
     case 'back':
       parts.push(
         'Framing: Single character, full body, STRICT rear view (180 degrees). Camera behind them. ' +
         'Same symmetrical T-pose as the front lock: both arms extended straight out, legs shoulder-width apart. ' +
-        'Face is not visible — back of head, hair, back, and wings if any. ' +
+        'Face is not visible — back of head, nape, scapulae, spine, and the BACK of the body. ' +
         'One figure only. Not a three-view sheet. Not front-facing. ' +
         'Clean neutral grey background. Technical character design / identity-lock BACK reference.'
       )
+      {
+        const dorsal = dorsalCameraNotes('back', character)
+        if (dorsal) parts.push(dorsal)
+      }
       break
     case 'mannequin':
       parts.push(

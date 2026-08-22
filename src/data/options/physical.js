@@ -171,8 +171,8 @@ export const physicalFieldOptions = {
 
   special_features: [
     opt('Horns (curved)', 'Keratin or bone curves from the skull. Hats are a design problem.', 'curved horns growing from the head', 'Doorframes and intimacy both require logistics. People grab them uninvited once.'),
-    opt('Prehensile tail', 'A tail that can hold, balance, or betray mood.', 'a prehensile tail', 'Knocks glasses off tables. Mood is visible behind them. Chairs need a gap.'),
-    opt('Winged (feathered)', 'Feathered wings. Coats, crowds, and rain are plot.', 'large feathered wings', 'They take up a room. Molting is humiliation or liturgy. Flying, if they can, changes every chase.'),
+    opt('Prehensile tail', 'A tail that can hold, balance, or betray mood.', 'a prehensile tail rooted at the base of the spine (coccyx), not the abdomen', 'Knocks glasses off tables. Mood is visible behind them. Chairs need a gap.'),
+    opt('Winged (feathered)', 'Feathered wings. Coats, crowds, and rain are plot.', 'large feathered wings rooted at the scapulae on the upper back', 'They take up a room. Molting is humiliation or liturgy. Flying, if they can, changes every chase.'),
     opt('Extra pair of arms', 'Four-armed work and hugs.', 'an extra pair of arms', 'Handshakes are a protocol. Clothing is custom. People ask them to hold things.'),
     opt('Bioluminescent markings', 'Living light in patterns. Stealth is a joke unless they can dim.', 'bioluminescent glowing markings on the skin', 'Mood lighting they cannot fully control. Beautiful and a targeting reticle.'),
     opt('Third eye (latent)', 'A third eye that may not always open. Forehead politics.', 'a third eye on the forehead, possibly closed or latent', 'People stare at the middle of their face. Visions, if any, are not small talk.'),

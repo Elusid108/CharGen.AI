@@ -3,6 +3,7 @@
  */
 
 import { getImageEndpointForModel } from './models'
+import { selectDisplay } from './selectDisplay'
 
 export const IDENTITY_LOCK_FALLBACK_ORDER = [
   'tpose', 'side', 'back', 'mannequin', 'profile', 'turnaround', 'fullbody',
@@ -23,6 +24,12 @@ export const CHAT_PHOTO_NEGATIVES =
 export const WARDROBE_POSE_NEGATIVES =
   'T-pose, arms stretched out to the sides, character design reference sheet, turnaround sheet, orthographic technical pose'
 
+/** Rear T-pose: stop copying front-plate wing/tail silhouettes onto a rotated torso. */
+export const BACK_VIEW_OCCLUDER_NEGATIVES =
+  'wings in front of the abdomen, chest-mounted wings, wings hidden behind the torso, ' +
+  'wings pasted from a front view, face visible, pectorals facing camera, front of chest visible, ' +
+  'tail growing from the stomach, occluders left in the front-lock screen position'
+
 /** Face-first reference for texted photos; lock is identity fallback. */
 export const CHAT_PHOTO_REFERENCE_ORDER = ['profile', 'tpose', 'mannequin', 'side', 'back']
 
@@ -41,6 +48,39 @@ export function resolveIdentityLock(generatedImages) {
     if (v) return v
   }
   return null
+}
+
+const DORSAL_FEATURE_RE = /wing|tail|prehensile|feathered|membran|bat[\s-]?wing/i
+
+/**
+ * Wings, tails, and similar extras that must re-parent when the camera rotates 180°.
+ * @param {Record<string, unknown> | null | undefined} character
+ */
+export function characterHasDorsalExtras(character) {
+  const feat = selectDisplay(character, 'special_features')
+  const custom = String(character?.special_features_custom || '')
+  return DORSAL_FEATURE_RE.test(`${feat} ${custom}`)
+}
+
+/**
+ * Which still to attach for a derived view.
+ * Back prefers the side lock (90° is easier than 180° from a front plate).
+ * @param {Record<string, string | null | undefined> | null | undefined} generatedImages
+ * @param {string} imageType
+ * @param {string | null} [frontLockOverride] freshly generated front lock (Generate All)
+ * @returns {{ image: string | null, source: 'side' | 'front' | null }}
+ */
+export function resolveViewReference(generatedImages, imageType, frontLockOverride = null) {
+  const images = generatedImages && typeof generatedImages === 'object' ? generatedImages : {}
+  const front = images.tpose || frontLockOverride || resolveIdentityLock(images) || null
+
+  if (imageType === 'back') {
+    if (images.side) return { image: images.side, source: 'side' }
+    return { image: front, source: front ? 'front' : null }
+  }
+
+  if (imageType === 'tpose') return { image: null, source: null }
+  return { image: front, source: front ? 'front' : null }
 }
 
 /**
@@ -105,8 +145,9 @@ export function modelSupportsReferenceImages(availableImageModels, selectedImage
  * @param {string} imageType
  * @param {'canonical' | 'thirst'} presentationMode
  * @param {string} [userNegative]
+ * @param {{ dorsalExtras?: boolean }} [extras]
  */
-export function mergeNegativePrompt(imageType, presentationMode, userNegative) {
+export function mergeNegativePrompt(imageType, presentationMode, userNegative, extras = {}) {
   const parts = []
   const user = String(userNegative ?? '').trim()
   if (user) parts.push(user)
@@ -115,6 +156,9 @@ export function mergeNegativePrompt(imageType, presentationMode, userNegative) {
   }
   if (imageType === 'outfit') {
     parts.push(WARDROBE_POSE_NEGATIVES)
+  }
+  if (imageType === 'back' && extras.dorsalExtras) {
+    parts.push(BACK_VIEW_OCCLUDER_NEGATIVES)
   }
   if (presentationMode === 'canonical' && CLOTHED_IMAGE_TYPES.has(imageType)) {
     parts.push(CANONICAL_CLOTHING_NEGATIVES)

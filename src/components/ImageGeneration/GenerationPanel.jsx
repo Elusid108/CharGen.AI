@@ -9,7 +9,8 @@ import { generateImage as callGenerateImage, buildImagePrompt, generateBackstory
 import { getImageEndpointForModel } from '../../utils/models'
 import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
 import {
-  resolveIdentityLock,
+  resolveViewReference,
+  characterHasDorsalExtras,
   modelSupportsReferenceImages,
   mergeNegativePrompt,
 } from '../../utils/imageGeneration'
@@ -101,11 +102,11 @@ export default function GenerationPanel() {
 
   /**
    * @param {string} imageType
-   * @param {{ batchReferenceBase64?: string | null, fromBatch?: boolean }} [options]
+   * @param {{ batchFrontLock?: string | null, fromBatch?: boolean }} [options]
    * @returns {Promise<string | null>} base64 on success, null on failure or missing API key
    */
   const handleGenerateImage = async (imageType, options = {}) => {
-    const { batchReferenceBase64, fromBatch = false } = options
+    const { batchFrontLock = null, fromBatch = false } = options
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
       return null
@@ -121,18 +122,24 @@ export default function GenerationPanel() {
       const canRef = modelSupportsReferenceImages(availableImageModels, selectedImageModel || DEFAULT_IMAGE_MODEL)
 
       let referenceImageBase64 = null
+      let referenceView = null
       if (imageType !== 'tpose' && canRef) {
         const latestImages = useCharacterStore.getState().generatedImages
-        referenceImageBase64 = batchReferenceBase64 || resolveIdentityLock(latestImages)
+        const resolved = resolveViewReference(latestImages, imageType, batchFrontLock)
+        referenceImageBase64 = resolved.image
+        referenceView = resolved.source
       }
 
-      const extraNegative = mergeNegativePrompt(imageType, presentationMode, negativePrompt)
+      const extraNegative = mergeNegativePrompt(imageType, presentationMode, negativePrompt, {
+        dorsalExtras: characterHasDorsalExtras(character),
+      })
       const prompt = buildImagePrompt(character, imageType, {
         artStyle,
         lighting,
         mood,
         presentationMode,
         hasReferenceImage: !!referenceImageBase64,
+        referenceView,
         extraNegative,
       })
 
@@ -170,7 +177,7 @@ export default function GenerationPanel() {
     setIsGeneratingAll(true)
     try {
       const lockImage = await handleGenerateImage('tpose', { fromBatch: true })
-      const refOpts = { batchReferenceBase64: lockImage || null, fromBatch: true }
+      const refOpts = { batchFrontLock: lockImage || null, fromBatch: true }
       for (const type of GENERATE_ALL_ORDER.slice(1)) {
         await handleGenerateImage(type, refOpts)
       }
