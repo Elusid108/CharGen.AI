@@ -175,6 +175,18 @@ function emptyGeneratedImagesState() {
   return emptyGeneratedImages()
 }
 
+/** Wipe identity-bound extras so Randomize All cannot keep the previous person's thread or art. */
+function newCharacterSessionFields() {
+  return {
+    characterId: null,
+    generatedImages: emptyGeneratedImagesState(),
+    backstory: '',
+    chatCanon: '',
+    wardrobe: [],
+    chat: emptyChatState(),
+  }
+}
+
 /**
  * Normalize a library record (v1 lock migrate, v3 chat fields).
  * @param {Record<string, unknown>} saved
@@ -501,14 +513,14 @@ export const useCharacterStore = create((set, get) => ({
     next = clearStaleCustomTexts(next)
 
     if (!hasKey) {
-      set({ character: next })
+      set({ character: next, ...newCharacterSessionFields() })
       toast('Add an API key in Settings to use AI randomization.', 'info')
       return { source: 'local', reason: 'no_api_key' }
     }
 
     const targets = collectLlmTextFieldIds(next, lockedFields, { mode: 'all' })
     if (targets.length === 0) {
-      set({ character: { ...next, ...lockedSlice } })
+      set({ character: { ...next, ...lockedSlice }, ...newCharacterSessionFields() })
       return { source: 'local' }
     }
 
@@ -529,12 +541,12 @@ export const useCharacterStore = create((set, get) => ({
           `AI randomization failed (${e instanceof Error ? e.message : 'unknown error'}). Used local dice; custom text left blank.`,
           'error'
         )
-        set({ character: { ...next, ...lockedSlice } })
+        set({ character: { ...next, ...lockedSlice }, ...newCharacterSessionFields() })
         return { source: 'local', reason: 'api_error' }
       }
 
       const filled = mergeLlmTextPatch(next, patch, targets)
-      set({ character: { ...filled, ...lockedSlice } })
+      set({ character: { ...filled, ...lockedSlice }, ...newCharacterSessionFields() })
       return { source: 'llm' }
     } finally {
       set({ isGenerating: false })

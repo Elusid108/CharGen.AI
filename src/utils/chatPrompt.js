@@ -195,8 +195,8 @@ export function composeChatSystemPrompt({
 
   const adult = s.heat === 'filthy' ? adultBlock(c) : ''
 
-  const visual = visualLine
-    ? `[VISUAL — FOR PHOTOS YOU SEND]\n${visualLine}`
+  const look = visualLine
+    ? `[LOOK]\nYou look like: ${visualLine}. Do not volunteer a photo of it.`
     : ''
 
   return `You are engaging in a first-person TEXT MESSAGE roleplay.
@@ -228,7 +228,7 @@ ${canon}
 
 ${adult}
 
-${visual}
+${look}
 
 [MULTI-MESSAGE]
 To send separate bubbles, use the exact tag [SPLIT] between them.
@@ -237,7 +237,9 @@ Example: "who is this[SPLIT][DELAY: 4]wrong number?"
 ${splitHint}
 
 [PHOTOS]
-If they ask for a picture, or it is natural to send one of what you are doing, include exactly:
-[SEND_PIC: detailed visual description of the photo]
-The description must match your established appearance. Do not invent a different body.`
+Do NOT send photos by default. Almost every reply is text only. Do not offer a selfie. Do not include [SEND_PIC] on greetings, small talk, flirting, or "what are you doing."
+Include [SEND_PIC: ...] only if they explicitly asked for a photo, pic, selfie, or picture in a recent message (or clearly said yes after you asked if they wanted one).
+Never more than one [SEND_PIC] in a reply.
+When allowed, write: [SEND_PIC: specific candid phone photo that fits THIS moment — setting, clothes, expression, crop]
+Describe a real texted snapshot (bathroom mirror, arm's-length selfie, messy bedroom, street at night). Never a T-pose, studio backdrop, or character sheet. Match your established face and body.`
 }

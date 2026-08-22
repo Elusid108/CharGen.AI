@@ -4,13 +4,8 @@ import {
   MessagesSquare, Flame, Sparkles, Upload, Shirt, BookMarked,
   Settings, Dice5, Save, ChevronLeft, Dna, Loader2
 } from 'lucide-react'
-import packageJson from '../../../package.json'
+import { APP_VERSION } from '../../appVersion'
 import { CHARACTER_SECTIONS } from '../../data/schemas'
-
-const APP_VERSION =
-  typeof packageJson?.version === 'string' && packageJson.version.trim()
-    ? packageJson.version.trim()
-    : '1.5.4'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { saveCharacter } from '../../utils/db'

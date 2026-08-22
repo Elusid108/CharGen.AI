@@ -5,6 +5,7 @@ import { useToastStore } from '../../hooks/useToast'
 import { getStorageEstimate } from '../../utils/db'
 import { formatBytes } from '../../utils/imageUtils'
 import { modelIdFromApiName } from '../../utils/models'
+import { APP_VERSION } from '../../appVersion'
 
 export default function SettingsPanel({ onClose }) {
   const apiKey = useCharacterStore(s => s.apiKey)
@@ -198,6 +199,10 @@ export default function SettingsPanel({ onClose }) {
             Characters, images, and settings persist between sessions.
           </p>
         </div>
+
+        <p className="text-[10px] text-slate-600 font-mono tabular-nums mt-6 text-center">
+          CharGen.AI v{APP_VERSION}
+        </p>
       </div>
     </div>
   )

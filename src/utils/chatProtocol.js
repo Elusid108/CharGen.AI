@@ -67,6 +67,27 @@ export function parseReplyBlocks(rawReply) {
   return blocks
 }
 
+export const PHOTO_REQUEST_RE =
+  /\b(selfie|selfies|pics?|pictures?|photos?|nudes?|snaps?)\b|\b(send|show|snap)\b[\s\S]{0,24}\b(pic|photo|selfie|picture|nude)\b|\b((what|how) (do you|you) look|see (your )?face)\b/i
+
+/**
+ * True if a recent user bubble actually asked for a photo (client-side brake on eager [SEND_PIC]).
+ * @param {{ role?: string, parts?: { text?: string }[], text?: string }[]} [apiMessages]
+ */
+export function userRecentlyAskedForPhoto(apiMessages = []) {
+  let seen = 0
+  for (let i = apiMessages.length - 1; i >= 0 && seen < 2; i--) {
+    const m = apiMessages[i]
+    if (m?.role !== 'user') continue
+    const text = Array.isArray(m.parts)
+      ? m.parts.map((p) => String(p?.text || '')).join(' ')
+      : String(m.text || '')
+    if (PHOTO_REQUEST_RE.test(text)) return true
+    seen += 1
+  }
+  return false
+}
+
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 }

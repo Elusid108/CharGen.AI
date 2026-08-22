@@ -798,6 +798,47 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
   return parts.join(' ')
 }
 
+const CHAT_PHOTO_IDENTITY_INSTRUCTION =
+  'The attached image is ONLY who this person is (face, hair, skin, body type). ' +
+  'Ignore its pose, crop, lighting, and background completely. ' +
+  'Do not copy a T-pose, arms stretched to the sides, grey seamless backdrop, or character-sheet composition.'
+
+/**
+ * Phone-snapshot prompt for chat [SEND_PIC] — not a studio full-body shot.
+ * Scene description is first so it is not buried under the identity lock.
+ * @param {Record<string, unknown>} character
+ * @param {string} picDescription
+ * @param {{
+ *   presentationMode?: 'canonical' | 'thirst',
+ *   hasReferenceImage?: boolean,
+ *   extraNegative?: string,
+ * }} [styleModifiers]
+ */
+export function buildChatPhotoPrompt(character, picDescription, styleModifiers = {}) {
+  const {
+    presentationMode = 'canonical',
+    hasReferenceImage = false,
+    extraNegative = '',
+  } = styleModifiers
+  const scene = String(picDescription || '').trim()
+    || 'a casual candid phone photo of this person in the current moment'
+  const clothingMode = presentationMode === 'thirst' ? 'thirst' : 'canonical'
+  const bodyDetail = clothingMode === 'thirst' ? 'full' : 'silhouette'
+  const physical = buildDetailedPhysicalPrompt(character, { clothingMode, bodyDetail })
+
+  const parts = [
+    'A candid smartphone photo someone just texted — real phone camera, slight compression, not concept art, not a character reference sheet.',
+    `What the photo shows: ${scene}`,
+    'Handheld framing: typical selfie, bathroom/bedroom mirror selfie, or a friend-took-this shot. Head and shoulders or torso. A real indoor or outdoor place that fits the description. Imperfect lighting. Not a studio. Not a seamless grey or black backdrop.',
+  ]
+  if (hasReferenceImage) parts.push(CHAT_PHOTO_IDENTITY_INSTRUCTION)
+  parts.push(physical)
+  parts.push('Same person as the reference. Completely different pose, camera, and setting than any T-pose or mannequin shot.')
+  const avoid = String(extraNegative ?? '').trim()
+  if (avoid) parts.push(`Avoid the following: ${avoid}.`)
+  return parts.join(' ')
+}
+
 // --- Backstory Generation ---
 
 export async function generateNarrativeHooks(apiKey, character, options = {}) {
