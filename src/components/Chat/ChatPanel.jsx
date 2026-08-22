@@ -5,12 +5,12 @@ import { useToastStore } from '../../hooks/useToast'
 import {
   generateChatReply,
   generateImage as callGenerateImage,
-  buildImagePrompt,
+  buildChatPhotoPrompt,
 } from '../../utils/api'
 import { composeChatSystemPrompt, CHAT_OPENERS, CHAT_HEATS } from '../../utils/chatPrompt'
-import { parseReplyBlocks, stripProtocolTags, sleep } from '../../utils/chatProtocol'
+import { parseReplyBlocks, stripProtocolTags, sleep, userRecentlyAskedForPhoto } from '../../utils/chatProtocol'
 import {
-  resolveIdentityLock,
+  resolveChatPhotoReference,
   modelSupportsReferenceImages,
   mergeNegativePrompt,
 } from '../../utils/imageGeneration'
@@ -87,9 +87,9 @@ export default function ChatPanel() {
   }, [])
 
   const trySendPic = async (picDescription) => {
-    const lock = resolveIdentityLock(useCharacterStore.getState().generatedImages)
+    const lock = resolveChatPhotoReference(useCharacterStore.getState().generatedImages)
     if (!lock) {
-      addToast('No identity lock yet — generate a T-pose lock to send photos.', 'warning')
+      addToast('Generate a profile or T-pose lock first so photos can match their face.', 'warning')
       return null
     }
     const modelId = selectedImageModel || DEFAULT_IMAGE_MODEL
@@ -98,12 +98,12 @@ export default function ChatPanel() {
       addToast('Photo send needs a Gemini image model (reference images).', 'warning')
       return null
     }
-    const extraNegative = mergeNegativePrompt('fullbody', presentationMode, '')
-    const prompt = `${buildImagePrompt(character, 'fullbody', {
+    const extraNegative = mergeNegativePrompt('chatphoto', presentationMode, '')
+    const prompt = buildChatPhotoPrompt(character, picDescription, {
       presentationMode,
       hasReferenceImage: true,
       extraNegative,
-    })} Phone selfie / candid photo sent from their device: ${picDescription}.`
+    })
     try {
       const raw = await callGenerateImage(apiKey, prompt, {
         aspectRatio: '3:4',
@@ -148,6 +148,7 @@ export default function ChatPanel() {
       const clean = stripProtocolTags(reply) || reply
       const apiModel = { role: 'model', parts: [{ text: clean }] }
       const blocks = parseReplyBlocks(reply)
+      const allowPic = userRecentlyAskedForPhoto(nextApi)
       let uiAcc = nextUi
 
       if (!blocks.length) {
@@ -161,7 +162,7 @@ export default function ChatPanel() {
           if (abortRef.current) break
           setTyping(false)
           let image = null
-          if (block.picDescription) {
+          if (block.picDescription && allowPic) {
             image = await trySendPic(block.picDescription)
           }
           uiAcc = [
@@ -236,7 +237,7 @@ export default function ChatPanel() {
             {character.archetype ? ` · ${character.archetype}` : ''}
           </p>
           <p className="text-[11px] text-slate-600 mt-3 leading-relaxed">
-            Photos follow Canonical / Thirst from Generation Studio. Generate a T-pose lock for selfies.
+            They only send a photo if you ask. Shots follow Canonical / Thirst from Generation Studio. A profile or T-pose lock is used for their face, not as the pose.
           </p>
         </div>
       </aside>
