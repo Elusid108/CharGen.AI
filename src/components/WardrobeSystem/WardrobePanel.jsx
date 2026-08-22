@@ -7,7 +7,12 @@ import { useToastStore } from '../../hooks/useToast'
 import { generateImage as callGenerateImage, buildImagePrompt } from '../../utils/api'
 import { getImageEndpointForModel } from '../../utils/models'
 import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
-import { downloadImage, base64ToDataUrl, generateId } from '../../utils/imageUtils'
+import {
+  resolveIdentityLock,
+  modelSupportsReferenceImages,
+  mergeNegativePrompt,
+} from '../../utils/imageGeneration'
+import { downloadImage, base64ToDataUrl, generateId, compressImageBase64, inferImageMime, extensionForImageMime } from '../../utils/imageUtils'
 
 const OUTFIT_CATEGORIES = {
   top: ['None/Shirtless', 'T-Shirt', 'Button-Up Shirt', 'Hoodie', 'Tank Top', 'Leather Jacket', 'Blazer', 'Sweater', 'Crop Top', 'Vest', 'Tactical Vest', 'Armor Plate', 'Robe', 'Flannel (Unbuttoned)', 'Corset', 'Cape/Cloak', 'Custom'],
@@ -49,6 +54,7 @@ export default function WardrobePanel() {
   const character = useCharacterStore(s => s.character)
   const apiKey = useCharacterStore(s => s.apiKey)
   const availableImageModels = useCharacterStore(s => s.availableImageModels)
+  const presentationMode = useCharacterStore(s => s.presentationMode)
   const wardrobe = useCharacterStore(s => s.wardrobe)
   const addOutfit = useCharacterStore(s => s.addOutfit)
   const updateOutfit = useCharacterStore(s => s.updateOutfit)
@@ -110,32 +116,32 @@ export default function WardrobePanel() {
       const namedLook = `Outfit "${outfit.name}" (${outfit.styleTag || 'Casual'})`
       const fullAttire = [namedLook, outfitDescription].filter(Boolean).join('. ')
 
-      const charWithOutfit = {
-        ...character,
-        attire: fullAttire,
-      }
-
-      const basePrompt = buildImagePrompt(charWithOutfit, 'outfit', {})
-      const prompt = outfitDescription
-        ? `${basePrompt} Outfit requirements (match exactly): ${outfitDescription}.`
-        : basePrompt
-
       const { selectedImageModel: storeImageModel, generatedImages } = useCharacterStore.getState()
       const modelId = storeImageModel || DEFAULT_IMAGE_MODEL
-      const referenceImageBase64 =
-        modelId === 'gemini-3-flash-image' && generatedImages?.mannequin
-          ? generatedImages.mannequin
-          : null
+      const canRef = modelSupportsReferenceImages(availableImageModels, modelId)
+      const lockImage = resolveIdentityLock(generatedImages)
+      const referenceImageBase64 = canRef && lockImage ? lockImage : null
+      const extraNegative = mergeNegativePrompt('outfit', presentationMode, '')
 
-      const base64 = await callGenerateImage(apiKey, prompt, {
+      const prompt = buildImagePrompt(character, 'outfit', {
+        presentationMode,
+        hasReferenceImage: !!referenceImageBase64,
+        outfitOverride: fullAttire,
+        extraNegative,
+      })
+
+      const rawBase64 = await callGenerateImage(apiKey, prompt, {
         aspectRatio: '3:4',
         modelId,
+        negativePrompt: extraNegative,
         imageEndpoint:
           availableImageModels.length > 0
             ? getImageEndpointForModel(availableImageModels, storeImageModel)
-            : 'predict',
+            : 'generateContent',
         ...(referenceImageBase64 ? { referenceImageBase64 } : {}),
       })
+
+      const base64 = await compressImageBase64(rawBase64)
 
       updateOutfit(outfit.id, { image: base64 })
       addToast(`"${outfit.name}" outfit generated!`, 'success')
@@ -168,6 +174,11 @@ export default function WardrobePanel() {
           <h2 className="text-2xl font-bold text-white mb-1">Wardrobe</h2>
           <p className="text-slate-400 text-sm">
             Create and manage outfits for your character. Generate images of them in each look.
+            {' '}
+            <span className="text-slate-500">
+              Uses the T-pose identity lock when one exists.
+              Presentation is {presentationMode === 'thirst' ? 'Thirst' : 'Canonical'} (set in Generation Studio).
+            </span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -278,7 +289,8 @@ export default function WardrobePanel() {
               onDownload={() => {
                 if (outfit.image) {
                   const name = character.name?.replace(/\s+/g, '_') || 'character'
-                  downloadImage(base64ToDataUrl(outfit.image), `${name}_${outfit.name.replace(/\s+/g, '_')}.png`)
+                  const ext = extensionForImageMime(inferImageMime(outfit.image))
+                  downloadImage(base64ToDataUrl(outfit.image), `${name}_${outfit.name.replace(/\s+/g, '_')}.${ext}`)
                 }
               }}
               onFullscreen={() => outfit.image && setFullscreenImage(outfit.image)}

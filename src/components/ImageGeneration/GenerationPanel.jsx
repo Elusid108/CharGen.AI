@@ -1,22 +1,30 @@
 import React, { useState } from 'react'
 import {
   Image, User, RotateCcw, Shirt, Camera, Download, Maximize2,
-  ChevronDown, PenLine, BookOpen, X, Layers,
+  PenLine, BookOpen, X, Layers, LayoutGrid,
 } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { generateImage as callGenerateImage, buildImagePrompt, generateBackstory as callGenerateBackstory } from '../../utils/api'
 import { getImageEndpointForModel } from '../../utils/models'
 import { DEFAULT_IMAGE_MODEL } from '../../utils/modelConstants'
+import {
+  resolveIdentityLock,
+  modelSupportsReferenceImages,
+  mergeNegativePrompt,
+} from '../../utils/imageGeneration'
 import { ART_STYLES, LIGHTING_OPTIONS, MOOD_OPTIONS } from '../../data/schemas'
-import { downloadImage, base64ToDataUrl } from '../../utils/imageUtils'
+import { downloadImage, base64ToDataUrl, compressImageBase64, inferImageMime, extensionForImageMime } from '../../utils/imageUtils'
 
 const IMAGE_TYPES = [
+  { id: 'tpose', label: 'T-Pose Lock', icon: RotateCcw, ratio: '3:4', description: 'Front identity lock', featured: true },
+  { id: 'turnaround', label: 'Turnaround Sheet', icon: LayoutGrid, ratio: '16:9', description: 'Front, side, back views' },
   { id: 'profile', label: 'Profile (1:1)', icon: User, ratio: '1:1', description: 'Head & shoulders portrait' },
   { id: 'fullbody', label: 'Full Body', icon: Image, ratio: '3:4', description: 'Relaxed natural pose' },
-  { id: 'tpose', label: 'T-Pose Reference', icon: RotateCcw, ratio: '16:9', description: 'Front, side, back views' },
-  { id: 'mannequin', label: 'Mannequin Base', icon: Shirt, ratio: '3:4', description: 'Base layer for outfits' },
+  { id: 'mannequin', label: 'Mannequin Base', icon: Shirt, ratio: '3:4', description: 'Relaxed underwear pose' },
 ]
+
+const GENERATE_ALL_ORDER = ['tpose', 'turnaround', 'profile', 'fullbody', 'mannequin']
 
 const STORY_LENGTHS = [
   { label: 'Short Vignette (1 paragraph)', value: 'Short Vignette' },
@@ -42,6 +50,8 @@ export default function GenerationPanel() {
   const availableImageModels = useCharacterStore(s => s.availableImageModels)
   const generatedImages = useCharacterStore(s => s.generatedImages)
   const setGeneratedImage = useCharacterStore(s => s.setGeneratedImage)
+  const presentationMode = useCharacterStore(s => s.presentationMode)
+  const setPresentationMode = useCharacterStore(s => s.setPresentationMode)
   const backstory = useCharacterStore(s => s.backstory)
   const setBackstory = useCharacterStore(s => s.setBackstory)
   const addToast = useToastStore(s => s.addToast)
@@ -68,17 +78,17 @@ export default function GenerationPanel() {
     imageEndpoint:
       availableImageModels.length > 0
         ? getImageEndpointForModel(availableImageModels, selectedImageModel)
-        : 'predict',
+        : 'generateContent',
     ...extra,
   })
 
   /**
    * @param {string} imageType
-   * @param {{ batchReferenceBase64?: string | null, ignoreStoredMannequinReference?: boolean }} [options]
+   * @param {{ batchReferenceBase64?: string | null, fromBatch?: boolean }} [options]
    * @returns {Promise<string | null>} base64 on success, null on failure or missing API key
    */
   const handleGenerateImage = async (imageType, options = {}) => {
-    const { batchReferenceBase64, ignoreStoredMannequinReference = false } = options
+    const { batchReferenceBase64, fromBatch = false } = options
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
       return null
@@ -87,31 +97,36 @@ export default function GenerationPanel() {
     setGeneratingTypes(prev => new Set([...prev, imageType]))
     try {
       const typeConfig = IMAGE_TYPES.find(t => t.id === imageType)
-      const prompt = buildImagePrompt(character, imageType, {
-        artStyle, lighting, mood,
-      })
+      const canRef = modelSupportsReferenceImages(availableImageModels, selectedImageModel || DEFAULT_IMAGE_MODEL)
 
-      const modelId = selectedImageModel || DEFAULT_IMAGE_MODEL
       let referenceImageBase64 = null
-      if (batchReferenceBase64 && modelId === 'gemini-3-flash-image') {
-        referenceImageBase64 = batchReferenceBase64
-      } else if (
-        !ignoreStoredMannequinReference &&
-        modelId === 'gemini-3-flash-image' &&
-        imageType !== 'mannequin' &&
-        generatedImages?.mannequin
-      ) {
-        referenceImageBase64 = generatedImages.mannequin
+      if (imageType !== 'tpose' && canRef) {
+        const latestImages = useCharacterStore.getState().generatedImages
+        referenceImageBase64 = batchReferenceBase64 || resolveIdentityLock(latestImages)
       }
 
-      const base64 = await callGenerateImage(apiKey, prompt, imageModelOptions({
+      const extraNegative = mergeNegativePrompt(imageType, presentationMode, negativePrompt)
+      const prompt = buildImagePrompt(character, imageType, {
+        artStyle,
+        lighting,
+        mood,
+        presentationMode,
+        hasReferenceImage: !!referenceImageBase64,
+        extraNegative,
+      })
+
+      const rawBase64 = await callGenerateImage(apiKey, prompt, imageModelOptions({
         aspectRatio: typeConfig.ratio,
-        negativePrompt,
+        negativePrompt: extraNegative,
         ...(referenceImageBase64 ? { referenceImageBase64 } : {}),
       }))
 
+      const base64 = await compressImageBase64(rawBase64)
       setGeneratedImage(imageType, base64)
       addToast(`${typeConfig.label} generated successfully!`, 'success')
+      if (imageType === 'tpose' && !fromBatch) {
+        addToast('Identity lock updated. Regenerate other images to match.', 'info')
+      }
       return base64
     } catch (e) {
       addToast(`${imageType}: ${e.message}`, 'error', 5000)
@@ -133,13 +148,11 @@ export default function GenerationPanel() {
 
     setIsGeneratingAll(true)
     try {
-      const anchorImage = await handleGenerateImage('profile', {
-        ignoreStoredMannequinReference: true,
-      })
-      const refOpts = anchorImage ? { batchReferenceBase64: anchorImage } : {}
-      await handleGenerateImage('fullbody', refOpts)
-      await handleGenerateImage('tpose', refOpts)
-      await handleGenerateImage('mannequin', refOpts)
+      const lockImage = await handleGenerateImage('tpose', { fromBatch: true })
+      const refOpts = { batchReferenceBase64: lockImage || null, fromBatch: true }
+      for (const type of GENERATE_ALL_ORDER.slice(1)) {
+        await handleGenerateImage(type, refOpts)
+      }
     } finally {
       setIsGeneratingAll(false)
     }
@@ -172,7 +185,8 @@ export default function GenerationPanel() {
     const base64 = generatedImages[imageType]
     if (!base64) return
     const name = character.name?.replace(/\s+/g, '_') || 'character'
-    downloadImage(base64ToDataUrl(base64), `${name}_${imageType}.png`)
+    const ext = extensionForImageMime(inferImageMime(base64))
+    downloadImage(base64ToDataUrl(base64), `${name}_${imageType}.${ext}`)
   }
 
   return (
@@ -188,6 +202,33 @@ export default function GenerationPanel() {
         </h3>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <div>
+            <label className="section-heading mb-1 block">Presentation</label>
+            <div className="flex rounded-lg border border-slate-700 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setPresentationMode('canonical')}
+                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  presentationMode !== 'thirst'
+                    ? 'bg-blue-600/30 text-blue-200'
+                    : 'bg-slate-900 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                Canonical
+              </button>
+              <button
+                type="button"
+                onClick={() => setPresentationMode('thirst')}
+                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  presentationMode === 'thirst'
+                    ? 'bg-amber-600/30 text-amber-200'
+                    : 'bg-slate-900 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                Thirst
+              </button>
+            </div>
+          </div>
           <div>
             <label className="section-heading mb-1 block">Art Style</label>
             <select value={artStyle} onChange={e => setArtStyle(e.target.value)} className="input-field w-full text-xs">
@@ -206,15 +247,21 @@ export default function GenerationPanel() {
               {MOOD_OPTIONS.map((m, i) => <option key={i} value={m.value}>{m.label}</option>)}
             </select>
           </div>
-          <div>
-            <label className="section-heading mb-1 block">Exclude</label>
-            <input
-              value={negativePrompt}
-              onChange={e => setNegativePrompt(e.target.value)}
-              placeholder="Blurry, low quality..."
-              className="input-field w-full text-xs"
-            />
-          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="section-heading mb-1 block">Exclude</label>
+          <input
+            value={negativePrompt}
+            onChange={e => setNegativePrompt(e.target.value)}
+            placeholder="Blurry, low quality..."
+            className="input-field w-full text-xs"
+          />
+          <p className="text-[11px] text-slate-500 mt-1.5">
+            {presentationMode === 'thirst'
+              ? 'Thirst mode uses Intimate Attire from the Mature sheet and full body detail.'
+              : 'Canonical mode uses Default Outfit (Identity) and keeps garments closed — no abs-through-clothing tricks. Generate All builds the front T-pose lock first, then every other view from that lock.'}
+          </p>
         </div>
 
         <button
@@ -231,9 +278,9 @@ export default function GenerationPanel() {
         </button>
       </div>
 
-      {/* Image Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {IMAGE_TYPES.map(type => (
+      {/* Image Grid — identity lock featured, then the rest */}
+      <div className="space-y-6">
+        {IMAGE_TYPES.filter(t => t.featured).map(type => (
           <ImageCard
             key={type.id}
             type={type}
@@ -242,8 +289,22 @@ export default function GenerationPanel() {
             onGenerate={() => handleGenerateImage(type.id)}
             onDownload={() => handleDownload(type.id)}
             onFullscreen={() => setFullscreenImage(generatedImages[type.id])}
+            lockBadge
           />
         ))}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {IMAGE_TYPES.filter(t => !t.featured).map(type => (
+            <ImageCard
+              key={type.id}
+              type={type}
+              image={generatedImages[type.id]}
+              isGenerating={generatingTypes.has(type.id)}
+              onGenerate={() => handleGenerateImage(type.id)}
+              onDownload={() => handleDownload(type.id)}
+              onFullscreen={() => setFullscreenImage(generatedImages[type.id])}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Narrative Engine */}
@@ -356,13 +417,18 @@ function CharacterSummary({ character }) {
   )
 }
 
-function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullscreen }) {
+function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullscreen, lockBadge }) {
   return (
     <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
       <div className="p-3 flex justify-between items-center border-b border-slate-700/50">
         <div className="flex items-center gap-2">
           <type.icon size={16} className="text-purple-400" />
           <span className="text-sm font-bold text-white">{type.label}</span>
+          {lockBadge && (
+            <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/60">
+              Identity lock
+            </span>
+          )}
         </div>
         <span className="text-[10px] text-slate-500 uppercase">{type.description}</span>
       </div>

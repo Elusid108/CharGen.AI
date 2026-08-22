@@ -168,6 +168,17 @@ export const definitions = {
   'The Trickster': 'Chaos agent with a grin. Tests hypocrisy, breaks rules, teaches painful lessons.',
   'The Monster': 'Othered by body or deed. Sympathy for the beast—or the cost of becoming one.',
 
+  // Default outfit (Canonical presentation)
+  'Casual everyday': 'Closed, ordinary clothes for the setting—shirt and pants, tunic, or equivalent. Not intimate wear.',
+  'Travel/adventuring': 'Practical layers for the road: coat, sturdy trousers, boots, weather-ready kit.',
+  'Formal': 'Occasion dress: suit, gown, court attire, or ceremonial equivalent. Intact and opaque.',
+  'Workwear': 'Job clothes—overalls, scrubs, shop apron, ship jumpsuit. Built to be worn closed.',
+  'Athletic': 'Training kit that still covers the torso: jersey, tracksuit, gi. Not a crop top unless Custom says so.',
+  'Armor/combat': 'Protective gear as clothing: breastplate, tactical vest, padded gambeson. Body stays covered.',
+  'Uniform': 'Service or faction kit: military, school, crew. Buttons done, insignia intact.',
+  'Simple tunic/robe': 'A single modest garment—monk robe, shift, wrap—fully covering the torso and legs.',
+  'Streetwear': 'Contemporary closed layers: hoodie, jacket, jeans. No cutouts to display anatomy.',
+
   // Vices & virtues (narrative)
   'Wrath': 'Hair-trigger justice or cruelty. Violence as language when words fail.',
   'Greed': 'More—status, touch, power, stuff. Never full; always calculating the next gain.',
@@ -394,6 +405,7 @@ export function getRoleplayTip(fieldId, value) {
     attraction_type: `Attracted to "${value}": how does flirtation look in public vs private?`,
     intimidated_by: `Intimidated by "${value}": body language when it walks in the room; growth arc to face it.`,
     attire: `In "${value}," how do they stand, fidget, or perform—who chose this look, them or the plot?`,
+    default_outfit: `Default look "${value}"—what does it say before they speak? What do they change into when the plot turns?`,
   }
 
   return (

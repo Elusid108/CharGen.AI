@@ -4,6 +4,8 @@
 
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from './modelConstants'
 import { CHARACTER_SECTIONS } from '../data/schemas'
+import { BODY_LOCK_IMAGE_TYPES } from './imageGeneration'
+import { inferImageMime } from './imageUtils'
 
 // --- Text Generation (Gemini) ---
 
@@ -306,12 +308,12 @@ function parseReferenceImageForGemini(referenceImageBase64) {
     const comma = s.indexOf(',')
     if (comma === -1) return null
     const meta = s.slice(5, comma)
-    const mimeType = meta.split(';')[0]?.trim() || 'image/png'
+    const mimeType = meta.split(';')[0]?.trim() || inferImageMime(s)
     const data = s.slice(comma + 1).replace(/\s/g, '')
     return data ? { mimeType, data } : null
   }
   const data = s.replace(/\s/g, '')
-  return data ? { mimeType: 'image/png', data } : null
+  return data ? { mimeType: inferImageMime(data), data } : null
 }
 
 // --- Image Generation (Imagen predict or Gemini generateContent) ---
@@ -407,6 +409,17 @@ function describeMuscleDef(val) {
   return 'extremely muscular and ripped body with deep muscle striations and prominent vascularity'
 }
 
+/** Muscle as garment drape only — never an instruction to expose abs. */
+function describeMuscleDefSilhouette(val) {
+  const v = parseInt(val)
+  if (isNaN(v) || v <= 0) return null
+  if (v < 20) return 'soft, unathletic silhouette under closed clothing'
+  if (v < 40) return 'lightly athletic silhouette filling closed clothing; no muscle visible through fabric'
+  if (v < 60) return 'athletic silhouette with a filled-out chest and shoulders under closed clothing'
+  if (v < 80) return 'broad muscular silhouette filling closed clothing; bulk suggested by garment drape only, not exposed skin'
+  return 'powerfully built silhouette with wide shoulders and a thick torso under fully covering clothing; do not show abs, veins, or skin through fabric'
+}
+
 function describeVascularity(val) {
   const v = parseInt(val)
   if (isNaN(v) || v < 20) return null
@@ -443,14 +456,109 @@ function groomingLineRejected(t) {
   return /^None /i.test(t) || t === 'N/A (Non-Human)'
 }
 
+const IDENTITY_PROMPT_SKIP = new Set([
+  'name', 'orientation', 'archetype', 'species', 'sex', 'gender', 'age', 'default_outfit',
+])
+
+const SILHOUETTE_BODY_PARTS = new Set([
+  'body_hair', 'forearms', 'upper_arms', 'shoulders', 'neck', 'chest_size',
+  'abs', 'back', 'glutes', 'upper_legs', 'lower_legs',
+])
+
+const COVERAGE_CANONICAL =
+  'CLOTHING COVERAGE (mandatory): All garments are intact, opaque, and fully closed as designed. ' +
+  'No cropped tops, midriff cutouts, unbuttoned shirts, wet or transparent fabric, tears, or windows cut into clothing to reveal musculature. ' +
+  'Do not reshape fabric to outline individual abdominal muscles. Anatomy may influence how clothing hangs, but skin of the torso stays covered unless the outfit description explicitly leaves that area uncovered.'
+
 /**
- * Observable visual description from schema-driven sections (identity, face, physical, sweat, intimate attire).
- * New body-part fields in `physical` are picked up automatically.
+ * @param {Record<string, unknown>} c
+ * @param {{ clothingMode: 'canonical' | 'thirst' | 'none', outfitOverride?: string | null }} opts
+ * @returns {string[]}
+ */
+function clothingPromptLines(c, { clothingMode, outfitOverride }) {
+  const originDisplay = selectDisplay(c, 'origin')
+  const fromOverride = typeof outfitOverride === 'string' ? outfitOverride.trim() : ''
+
+  if (fromOverride) {
+    const lines = [
+      `Clothing and coverage (must match exactly): ${fromOverride}.`,
+      'CRITICAL: All visible garments must correspond to the clothing described above—do not substitute a different outfit.',
+    ]
+    if (clothingMode === 'canonical') {
+      lines.push(COVERAGE_CANONICAL)
+    }
+    if (originDisplay) {
+      lines.push(
+        `Materials, weathering, and design of the clothing and gear must heavily reflect this character's origin (${originDisplay}).`
+      )
+    }
+    return lines
+  }
+
+  if (clothingMode === 'none') {
+    return [
+      'Clothing and coverage (must match exactly): simple fitted underwear or briefs only. No shirt, no outerwear, no costume.',
+      'This is a technical body-reference shot for identity lock and outfit design.',
+    ]
+  }
+
+  if (clothingMode === 'thirst') {
+    const attire = selectDisplay(c, 'attire')
+    if (attire) {
+      const lines = [
+        `Clothing and coverage (must match exactly): ${attire}.`,
+        'CRITICAL: All visible garments must correspond to the clothing described above—do not substitute a different outfit.',
+      ]
+      if (originDisplay) {
+        lines.push(
+          `Materials, weathering, and design of the clothing and gear must heavily reflect this character's origin (${originDisplay}).`
+        )
+      }
+      return lines
+    }
+    return [
+      'Clothing and coverage (must match exactly): simple fitted underwear or briefs only. Not nude.',
+    ]
+  }
+
+  const outfit = selectDisplay(c, 'default_outfit')
+  const lines = []
+  if (outfit) {
+    lines.push(`Clothing and coverage (must match exactly): ${outfit}.`)
+  } else {
+    const originBit = originDisplay ? ` appropriate to their origin (${originDisplay})` : ''
+    lines.push(
+      `Clothing and coverage (must match exactly): simple opaque closed everyday garments${originBit}. Fully clothed; no intimate or revealing attire.`
+    )
+  }
+  lines.push(COVERAGE_CANONICAL)
+  if (originDisplay && outfit) {
+    lines.push(
+      `Materials, weathering, and design of the clothing and gear must heavily reflect this character's origin (${originDisplay}).`
+    )
+  }
+  return lines
+}
+
+/**
+ * Observable visual description from schema-driven sections.
  * @param {Record<string, unknown>} characterState
- * @param {{ omitAttire?: boolean }} [options]
+ * @param {{
+ *   omitAttire?: boolean,
+ *   clothingMode?: 'canonical' | 'thirst' | 'none',
+ *   bodyDetail?: 'full' | 'silhouette',
+ *   outfitOverride?: string | null,
+ * }} [options]
  */
 export function buildDetailedPhysicalPrompt(characterState, options = {}) {
-  const { omitAttire = false } = options
+  const {
+    omitAttire = false,
+    clothingMode: clothingModeOpt,
+    bodyDetail: bodyDetailOpt,
+    outfitOverride = null,
+  } = options
+  const clothingMode = clothingModeOpt ?? (omitAttire ? 'none' : 'canonical')
+  const bodyDetail = bodyDetailOpt ?? (clothingMode === 'canonical' ? 'silhouette' : 'full')
   const c = characterState
   const parts = []
 
@@ -467,9 +575,8 @@ export function buildDetailedPhysicalPrompt(characterState, options = {}) {
   if (apparent) opener += `, apparent age around ${apparent}`
   parts.push(`${opener}.`)
 
-  const identitySkip = new Set(['name', 'orientation', 'archetype', 'species', 'sex', 'gender', 'age'])
   CHARACTER_SECTIONS.identity.fields.forEach((field) => {
-    if (field.conditional || identitySkip.has(field.id)) return
+    if (field.conditional || IDENTITY_PROMPT_SKIP.has(field.id)) return
     if (field.type === 'select') {
       const t = selectDisplay(c, field.id)
       if (t) parts.push(`${field.label}: ${t}.`)
@@ -498,7 +605,13 @@ export function buildDetailedPhysicalPrompt(characterState, options = {}) {
         t = describeSkinTone(t, selectDisplay(c, 'origin'))
       }
       if (field.id === 'body_hair' && t === 'N/A (Non-Human)') return
+      if (bodyDetail === 'silhouette' && field.id === 'body_hair') return
       let line = `${field.label}: ${t}.`
+      if (bodyDetail === 'silhouette' && SILHOUETTE_BODY_PARTS.has(field.id)) {
+        line =
+          `Build under closed clothing — ${field.label}: ${t}. ` +
+          'Suggest this through garment drape only; do not cut, open, or wet clothing to show this anatomy.'
+      }
       if (field.id === 'scars' && t.toLowerCase().includes('implosion')) {
         line +=
           ' Render as raised, keloid, or indented skin texture rather than mere discoloration.'
@@ -510,44 +623,74 @@ export function buildDetailedPhysicalPrompt(characterState, options = {}) {
       parts.push(line)
     } else if (field.type === 'range') {
       if (field.id === 'muscle_def') {
-        const d = describeMuscleDef(c.muscle_def)
+        const d = bodyDetail === 'silhouette'
+          ? describeMuscleDefSilhouette(c.muscle_def)
+          : describeMuscleDef(c.muscle_def)
         if (d) parts.push(`${field.label}: ${d}.`)
       } else if (field.id === 'vascularity') {
+        if (bodyDetail === 'silhouette') return
         const d = describeVascularity(c.vascularity)
         if (d) parts.push(`${field.label}: ${d}.`)
       }
     }
   })
 
-  const glistenDesc = describeSkinGlisten(c.sweat_glisten)
-  if (glistenDesc) parts.push(`Skin surface / sweat: ${glistenDesc}.`)
-
-  if (!omitAttire) {
-    const attire = selectDisplay(c, 'attire')
-    if (attire) {
-      parts.push(`Clothing and coverage (must match exactly in the image): ${attire}.`)
-      parts.push(
-        'CRITICAL: All visible garments must correspond to the clothing described above—do not substitute a different outfit.'
-      )
-      const originDisplay = selectDisplay(c, 'origin')
-      if (originDisplay) {
-        parts.push(
-          `Materials, weathering, and design of the clothing and gear must heavily reflect this character's origin (${originDisplay}).`
-        )
-      }
-    }
+  if (bodyDetail === 'full') {
+    const glistenDesc = describeSkinGlisten(c.sweat_glisten)
+    if (glistenDesc) parts.push(`Skin surface / sweat: ${glistenDesc}.`)
   }
+
+  clothingPromptLines(c, { clothingMode, outfitOverride }).forEach((line) => parts.push(line))
 
   return parts.join(' ')
 }
 
-// --- Image Prompt Builder ---
+const IDENTITY_LOCK_INSTRUCTION =
+  'IDENTITY LOCK: The attached image is the canonical appearance of this exact character. ' +
+  'Match face, body, skin, hair, and proportions exactly. Change only pose, camera framing, or clothing as specified. ' +
+  'Do not invent a different person.'
 
+/**
+ * @param {Record<string, unknown>} character
+ * @param {string} [imageType]
+ * @param {{
+ *   artStyle?: string,
+ *   lighting?: string,
+ *   mood?: string,
+ *   presentationMode?: 'canonical' | 'thirst',
+ *   hasReferenceImage?: boolean,
+ *   outfitOverride?: string | null,
+ *   extraNegative?: string,
+ * }} [styleModifiers]
+ */
 export function buildImagePrompt(character, imageType = 'profile', styleModifiers = {}) {
   const parts = []
+  const {
+    artStyle = '',
+    lighting = '',
+    mood = '',
+    presentationMode = 'canonical',
+    hasReferenceImage = false,
+    outfitOverride = null,
+    extraNegative = '',
+  } = styleModifiers
 
-  const physical = buildDetailedPhysicalPrompt(character, { omitAttire: imageType === 'mannequin' })
+  const isBodyLock = BODY_LOCK_IMAGE_TYPES.has(imageType)
+  const clothingMode = isBodyLock
+    ? 'none'
+    : (presentationMode === 'thirst' ? 'thirst' : 'canonical')
+  const bodyDetail = isBodyLock || clothingMode === 'thirst' ? 'full' : 'silhouette'
+
+  const physical = buildDetailedPhysicalPrompt(character, {
+    clothingMode,
+    bodyDetail,
+    outfitOverride: imageType === 'outfit' ? outfitOverride : null,
+  })
   parts.push(`A highly detailed character concept art. ${physical}`)
+
+  if (hasReferenceImage) {
+    parts.push(IDENTITY_LOCK_INSTRUCTION)
+  }
 
   if (character.personality) {
     parts.push(`Their facial expression conveys a ${character.personality} demeanor.`)
@@ -570,7 +713,15 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
     }
     case 'tpose':
       parts.push(
-        'Framing: A professional character model reference sheet. ' +
+        'Framing: Single character, full body, camera facing the front only. ' +
+        'Symmetrical T-pose: both arms extended straight out to the sides, palms facing forward, ' +
+        'legs shoulder-width apart, standing centered. One figure only — not a turnaround sheet. ' +
+        'Clean neutral grey background. Technical character design / identity-lock reference.'
+      )
+      break
+    case 'turnaround':
+      parts.push(
+        'Framing: A professional character model reference sheet derived from the identity lock. ' +
         'Three views of the SAME character side by side: front-facing view on the left, ' +
         'side profile view in the center, rear/back view on the right. ' +
         'The character stands in a symmetrical T-pose with both arms extended straight out to the sides, ' +
@@ -581,8 +732,9 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
       break
     case 'mannequin':
       parts.push(
-        'Framing: Full body, neutral standing pose wearing only simple fitted underwear/briefs. ' +
-        'Clean solid light grey background. Like a mannequin or dress-up doll reference for designing outfits onto.'
+        'Framing: Full body, neutral standing pose (not a T-pose) wearing only simple fitted underwear/briefs. ' +
+        'Clean solid light grey background. Like a mannequin or dress-up doll reference for designing outfits onto. ' +
+        'Same body as the identity lock; only the pose changes.'
       )
       break
     case 'outfit':
@@ -592,12 +744,16 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
       parts.push('Solid dark cinematic background.')
   }
 
-  const { artStyle = '', lighting = '', mood = '' } = styleModifiers
   let styleStr = 'Style: High quality digital concept art, 8k resolution, detailed.'
   if (artStyle) styleStr += ` ${artStyle}.`
   if (lighting) styleStr += ` ${lighting}.`
   if (mood) styleStr += ` ${mood}.`
   parts.push(styleStr)
+
+  const avoid = String(extraNegative ?? '').trim()
+  if (avoid) {
+    parts.push(`Avoid the following: ${avoid}.`)
+  }
 
   return parts.join(' ')
 }

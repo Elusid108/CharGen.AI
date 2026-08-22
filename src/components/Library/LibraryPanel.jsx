@@ -7,7 +7,8 @@ import {
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { getAllCharacters, deleteCharacter, deleteMultipleCharacters, saveCharacter } from '../../utils/db'
-import { downloadImage, base64ToDataUrl, generateId } from '../../utils/imageUtils'
+import { downloadImage, base64ToDataUrl, generateId, inferImageMime, extensionForImageMime, stripBase64Prefix } from '../../utils/imageUtils'
+import { migrateSavedCharacter } from '../../hooks/useCharacter'
 import JSZip from 'jszip'
 
 export default function LibraryPanel() {
@@ -129,15 +130,17 @@ export default function LibraryPanel() {
       const folder = zip.folder('CharGen_Characters')
 
       characters.filter(c => selectedIds.has(c.id)).forEach(char => {
-        // Add JSON data
-        const filename = (char.name || 'unnamed').replace(/\s+/g, '_')
-        folder.file(`${filename}.json`, JSON.stringify(char, null, 2))
+        const migrated = migrateSavedCharacter(char)
+        const filename = (migrated.name || 'unnamed').replace(/\s+/g, '_')
+        folder.file(`${filename}.json`, JSON.stringify(migrated, null, 2))
 
-        // Add images
-        if (char.generatedImages) {
-          Object.entries(char.generatedImages).forEach(([type, base64]) => {
+        if (migrated.generatedImages) {
+          Object.entries(migrated.generatedImages).forEach(([type, base64]) => {
             if (base64) {
-              folder.file(`${filename}_${type}.png`, base64, { base64: true })
+              const mime = inferImageMime(base64)
+              const ext = extensionForImageMime(mime)
+              const raw = stripBase64Prefix(base64)
+              folder.file(`${filename}_${type}.${ext}`, raw, { base64: true })
             }
           })
         }
@@ -156,7 +159,7 @@ export default function LibraryPanel() {
   }
 
   const handleExportJSON = () => {
-    const data = JSON.stringify(characters, null, 2)
+    const data = JSON.stringify(characters.map(migrateSavedCharacter), null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
@@ -175,9 +178,10 @@ export default function LibraryPanel() {
       const chars = Array.isArray(imported) ? imported : [imported]
 
       for (const char of chars) {
-        if (!char.id) char.id = generateId()
-        if (!char.timestamp) char.timestamp = Date.now()
-        await saveCharacter(char)
+        const migrated = migrateSavedCharacter(char)
+        if (!migrated.id) migrated.id = generateId()
+        if (!migrated.timestamp) migrated.timestamp = Date.now()
+        await saveCharacter(migrated)
       }
 
       await refreshLibrary()

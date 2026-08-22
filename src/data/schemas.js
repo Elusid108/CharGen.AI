@@ -46,6 +46,8 @@ export const CHARACTER_SECTIONS = {
       { id: 'origin', label: 'Origin', type: 'select', options: ['Urban Megacity', 'Rural Heartland', 'Orbital Habitat', 'Martian Settlement', 'Deep Sea Colony', 'Frontier Outpost', 'Nomadic Fleet', 'Underground Enclave', 'Arcology Sprawl', 'Monastery / Order Raised', 'Custom'] },
       { id: 'origin_custom', label: 'Custom Origin', type: 'text', placeholder: 'E.g., Generation ship creche, fey border town, penal asteroid...', conditional: { field: 'origin', value: 'Custom' } },
       { id: 'archetype', label: 'Archetype', type: 'select', options: ['The Hero', 'The Outlaw', 'The Sage', 'The Explorer', 'The Creator', 'The Ruler', 'The Magician', 'The Caregiver', 'The Jester', 'The Everyman', 'The Lover', 'The Innocent', 'The Alpha', 'The Golden Retriever', 'The Silver Fox', 'The Bad Boy', 'The Stoic Protector', 'The Lone Wolf', 'The Himbo', 'The Femme Fatale', 'The Trickster', 'The Monster'] },
+      { id: 'default_outfit', label: 'Default Outfit', type: 'select', options: ['Casual everyday', 'Travel/adventuring', 'Formal', 'Workwear', 'Athletic', 'Armor/combat', 'Uniform', 'Simple tunic/robe', 'Streetwear', 'Custom'] },
+      { id: 'default_outfit_custom', label: 'Custom Default Outfit', type: 'text', placeholder: 'E.g., waxed canvas duster, linen shirt, scuffed boots...', conditional: { field: 'default_outfit', value: 'Custom' } },
     ]
   },
 
@@ -206,6 +208,19 @@ export const CHARACTER_SECTIONS = {
       { id: 'body_confidence', label: 'Body Confidence', type: 'range', min: 0, max: 100, default: 50 },
     ]
   },
+}
+
+/** Persist this on every library save. Bump when generatedImages or attribute shape changes. */
+export const CHARACTER_SCHEMA_VERSION = 2
+
+export function emptyGeneratedImages() {
+  return {
+    profile: null,
+    fullbody: null,
+    tpose: null,
+    turnaround: null,
+    mannequin: null,
+  }
 }
 
 // Flattened list of all field IDs for easy access

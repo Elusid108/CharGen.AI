@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getDefaultCharacter, CHARACTER_SECTIONS } from '../data/schemas'
+import { getDefaultCharacter, CHARACTER_SECTIONS, CHARACTER_SCHEMA_VERSION, emptyGeneratedImages } from '../data/schemas'
 import { randomFrom, randomRange, randomName } from '../data/randomPools'
 import { generateId } from '../utils/imageUtils'
 import { getSetting, saveSetting } from '../utils/db'
@@ -170,20 +170,51 @@ function mergeLlmTextPatch(baseCharacter, patch, allowedIds) {
   return out
 }
 
+function emptyGeneratedImagesState() {
+  return emptyGeneratedImages()
+}
+
+/**
+ * Normalize a library record to schema v2 (front T-pose lock + turnaround slot).
+ * @param {Record<string, unknown>} saved
+ */
+export function migrateSavedCharacter(saved) {
+  if (!saved || typeof saved !== 'object') {
+    return {
+      generatedImages: emptyGeneratedImagesState(),
+      presentationMode: 'canonical',
+      schemaVersion: CHARACTER_SCHEMA_VERSION,
+      attributes: getDefaultCharacter(),
+    }
+  }
+
+  const version = Number(saved.schemaVersion) || 1
+  const images = { ...emptyGeneratedImagesState(), ...(saved.generatedImages || {}) }
+
+  if (version < 2 && images.tpose && !images.turnaround) {
+    images.turnaround = images.tpose
+    images.tpose = null
+  }
+
+  return {
+    ...saved,
+    generatedImages: images,
+    presentationMode: saved.presentationMode === 'thirst' ? 'thirst' : 'canonical',
+    schemaVersion: CHARACTER_SCHEMA_VERSION,
+    attributes: { ...getDefaultCharacter(), ...(saved.attributes || {}) },
+  }
+}
+
 export const useCharacterStore = create((set, get) => ({
   // Character data
   character: getDefaultCharacter(),
   characterId: null,
 
   // Generated content
-  generatedImages: {
-    profile: null,
-    fullbody: null,
-    tpose: null,
-    mannequin: null,
-  },
+  generatedImages: emptyGeneratedImagesState(),
   backstory: '',
   wardrobe: [],
+  presentationMode: 'canonical',
 
   // API Key
   apiKey: '',
@@ -291,6 +322,14 @@ export const useCharacterStore = create((set, get) => ({
     set(state => ({
       generatedImages: { ...state.generatedImages, [type]: base64 }
     }))
+  },
+
+  setPresentationMode: (mode) => {
+    set({ presentationMode: mode === 'thirst' ? 'thirst' : 'canonical' })
+  },
+
+  setCharacterId: (id) => {
+    set({ characterId: id || null })
   },
 
   // Set backstory
@@ -446,15 +485,17 @@ export const useCharacterStore = create((set, get) => ({
 
   // Load a saved character
   loadCharacter: (saved) => {
-    const lf = saved.lockedFields
+    const migrated = migrateSavedCharacter(saved)
+    const lf = migrated.lockedFields
     const lockedFields =
       lf && typeof lf === 'object' && !Array.isArray(lf) ? { ...lf } : {}
     set({
-      characterId: saved.id,
-      character: saved.attributes || getDefaultCharacter(),
-      generatedImages: saved.generatedImages || { profile: null, fullbody: null, tpose: null, mannequin: null },
-      backstory: saved.backstory || '',
-      wardrobe: saved.wardrobe || [],
+      characterId: migrated.id,
+      character: migrated.attributes || getDefaultCharacter(),
+      generatedImages: migrated.generatedImages,
+      backstory: migrated.backstory || '',
+      wardrobe: migrated.wardrobe || [],
+      presentationMode: migrated.presentationMode,
       lockedFields,
     })
   },
@@ -464,12 +505,14 @@ export const useCharacterStore = create((set, get) => ({
     const state = get()
     return {
       id: state.characterId || generateId(),
+      schemaVersion: CHARACTER_SCHEMA_VERSION,
       timestamp: Date.now(),
       name: state.character.name || 'Unnamed Character',
       attributes: { ...state.character },
       generatedImages: { ...state.generatedImages },
       backstory: state.backstory,
       wardrobe: [...state.wardrobe],
+      presentationMode: state.presentationMode === 'thirst' ? 'thirst' : 'canonical',
       metadata: {
         tags: [],
         favorite: false,
@@ -484,9 +527,10 @@ export const useCharacterStore = create((set, get) => ({
     set({
       character: getDefaultCharacter(),
       characterId: null,
-      generatedImages: { profile: null, fullbody: null, tpose: null, mannequin: null },
+      generatedImages: emptyGeneratedImagesState(),
       backstory: '',
       wardrobe: [],
+      presentationMode: 'canonical',
       lockedFields: {},
     })
   },

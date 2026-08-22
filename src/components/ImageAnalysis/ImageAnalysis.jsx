@@ -5,7 +5,7 @@ import { useToastStore } from '../../hooks/useToast'
 import { analyzeImage } from '../../utils/api'
 import { buildAnalysisPrompt } from '../../utils/api'
 import { getNumericFieldIds } from '../../data/schemas'
-import { fileToBase64 } from '../../utils/imageUtils'
+import { fileToBase64, compressImageBase64 } from '../../utils/imageUtils'
 
 const NUMERIC_FIELD_IDS = new Set(getNumericFieldIds())
 
@@ -105,7 +105,7 @@ export default function ImageAnalysis() {
     }
   }
 
-  const handleApplyResults = () => {
+  const handleApplyResults = async () => {
     if (!analysis) return
 
     // Map analysis fields to character fields
@@ -128,9 +128,13 @@ export default function ImageAnalysis() {
 
     updateFields(updates)
 
-    // Also save the uploaded image as the profile image
     if (uploadedBase64) {
-      setGeneratedImage('profile', uploadedBase64)
+      try {
+        const compressed = await compressImageBase64(uploadedBase64)
+        setGeneratedImage('profile', compressed)
+      } catch {
+        setGeneratedImage('profile', uploadedBase64)
+      }
     }
 
     addToast(`Applied ${Object.keys(updates).length} attributes to character!`, 'success')

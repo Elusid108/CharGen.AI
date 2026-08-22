@@ -14,6 +14,7 @@ const APP_VERSION =
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { saveCharacter } from '../../utils/db'
+import { compressSaveAssets } from '../../utils/imageUtils'
 
 const ICON_MAP = {
   Fingerprint, Dumbbell, ScanFace, Footprints, Brain, BookOpen,
@@ -32,12 +33,19 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
   const randomizeAll = useCharacterStore(s => s.randomizeAll)
   const isGenerating = useCharacterStore(s => s.isGenerating)
   const getSaveData = useCharacterStore(s => s.getSaveData)
+  const setCharacterId = useCharacterStore(s => s.setCharacterId)
   const addToast = useToastStore(s => s.addToast)
 
   const handleSave = async () => {
     try {
       const data = getSaveData()
-      await saveCharacter(data)
+      const compressed = await compressSaveAssets(data)
+      await saveCharacter(compressed)
+      setCharacterId(compressed.id)
+      useCharacterStore.setState({
+        generatedImages: compressed.generatedImages,
+        wardrobe: compressed.wardrobe,
+      })
       addToast('Character saved to library!', 'success')
     } catch (e) {
       addToast('Failed to save: ' + e.message, 'error')
