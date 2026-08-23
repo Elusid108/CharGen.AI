@@ -16,6 +16,7 @@ import {
   apparentAgeFromChronological,
 } from '../data/options/priors'
 import { generateId } from '../utils/imageUtils'
+import { migrateOutfit } from '../utils/wardrobe'
 import { getSetting, saveSetting } from '../utils/db'
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
 import { fetchGeminiModels } from '../utils/models'
@@ -345,12 +346,17 @@ export function migrateSavedCharacter(saved) {
     }
   }
 
+  const wardrobe = Array.isArray(saved.wardrobe)
+    ? saved.wardrobe.map((row) => migrateOutfit(row))
+    : []
+
   return {
     ...saved,
     generatedImages: images,
     presentationMode: saved.presentationMode === 'thirst' ? 'thirst' : 'canonical',
     schemaVersion: CHARACTER_SCHEMA_VERSION,
     attributes,
+    wardrobe,
     chatCanon: typeof saved.chatCanon === 'string' ? saved.chatCanon : '',
     chat: normalizeChatState(saved.chat),
   }
