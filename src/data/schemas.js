@@ -279,6 +279,10 @@ export function getDefaultCharacter() {
   return char
 }
 
+export const DEFAULT_ART_STYLE = ', 3d render, pixar style'
+export const DEFAULT_LIGHTING = ', cinematic lighting, dramatic shadows'
+export const DEFAULT_MOOD = ', relaxed mood, calm, at ease'
+
 export const ART_STYLES = [
   { label: 'Default (Concept Art)', value: '' },
   { label: 'Photorealistic', value: ', photorealistic, 8k, cinematic' },
@@ -286,7 +290,7 @@ export const ART_STYLES = [
   { label: 'Cyberpunk', value: ', cyberpunk style, neon lights' },
   { label: 'Watercolor', value: ', watercolor painting, artistic' },
   { label: 'Oil Painting', value: ', oil painting, textured' },
-  { label: '3D Render', value: ', 3d render, pixar style' },
+  { label: '3D Render', value: DEFAULT_ART_STYLE },
   { label: 'Comic Book', value: ', comic book style, bold lines' },
   { label: 'Film Noir', value: ', film noir, b&w' },
   { label: 'Surrealism', value: ', surrealism, dreamlike' },
@@ -300,7 +304,7 @@ export const ART_STYLES = [
 
 export const LIGHTING_OPTIONS = [
   { label: 'Default', value: '' },
-  { label: 'Cinematic', value: ', cinematic lighting, dramatic shadows' },
+  { label: 'Cinematic', value: DEFAULT_LIGHTING },
   { label: 'Natural', value: ', soft natural lighting, sunlight' },
   { label: 'Golden Hour', value: ', golden hour, warm sunset lighting' },
   { label: 'Studio', value: ', studio lighting, perfect exposure' },
@@ -311,6 +315,7 @@ export const LIGHTING_OPTIONS = [
 
 export const MOOD_OPTIONS = [
   { label: 'Default', value: '' },
+  { label: 'Relaxed', value: DEFAULT_MOOD },
   { label: 'Vibrant', value: ', vibrant colors, high saturation' },
   { label: 'Muted', value: ', muted colors, desaturated, matte' },
   { label: 'Pastel', value: ', pastel color palette, soft colors' },

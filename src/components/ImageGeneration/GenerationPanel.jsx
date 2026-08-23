@@ -14,7 +14,14 @@ import {
   modelSupportsReferenceImages,
   mergeNegativePrompt,
 } from '../../utils/imageGeneration'
-import { ART_STYLES, LIGHTING_OPTIONS, MOOD_OPTIONS } from '../../data/schemas'
+import {
+  ART_STYLES,
+  LIGHTING_OPTIONS,
+  MOOD_OPTIONS,
+  DEFAULT_ART_STYLE,
+  DEFAULT_LIGHTING,
+  DEFAULT_MOOD,
+} from '../../data/schemas'
 import { NARRATIVE_LENSES, guessGenreFromCharacter, pickNarrativeLens } from '../../utils/storyBible'
 import { downloadImage, base64ToDataUrl, compressImageBase64, inferImageMime, extensionForImageMime, aspectClassForRatio } from '../../utils/imageUtils'
 
@@ -62,9 +69,9 @@ export default function GenerationPanel() {
   const addToast = useToastStore(s => s.addToast)
 
   // Image generation state
-  const [artStyle, setArtStyle] = useState('')
-  const [lighting, setLighting] = useState('')
-  const [mood, setMood] = useState('')
+  const [artStyle, setArtStyle] = useState(DEFAULT_ART_STYLE)
+  const [lighting, setLighting] = useState(DEFAULT_LIGHTING)
+  const [mood, setMood] = useState(DEFAULT_MOOD)
   const [negativePrompt, setNegativePrompt] = useState('')
   const [generatingTypes, setGeneratingTypes] = useState(new Set())
   const [isGeneratingAll, setIsGeneratingAll] = useState(false)
