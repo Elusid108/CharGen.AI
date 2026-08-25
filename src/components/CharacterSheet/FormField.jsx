@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useId } from 'react'
+import React, { useState, useRef, useEffect, useLayoutEffect, useId } from 'react'
 import { ChevronDown, Lock, Unlock } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { normalizeSelectOptions } from '../../data/options'
@@ -57,11 +57,47 @@ export default function FormField({ field, value, onChange, onHover, onSelectOpt
   )
 }
 
+const MENU_MAX_PX = 240
+const MENU_GAP_PX = 4
+
+function getScrollParents(el) {
+  const parents = []
+  let node = el?.parentElement
+  while (node && node !== document.body) {
+    const overflowY = getComputedStyle(node).overflowY
+    if (overflowY === 'auto' || overflowY === 'scroll') parents.push(node)
+    node = node.parentElement
+  }
+  return parents
+}
+
+function measureMenuPlacement(triggerEl, listEl) {
+  const rect = triggerEl.getBoundingClientRect()
+  const spaceBelow = window.innerHeight - rect.bottom - MENU_GAP_PX
+  const spaceAbove = rect.top - MENU_GAP_PX
+  const needed = Math.min(listEl?.scrollHeight ?? MENU_MAX_PX, MENU_MAX_PX)
+
+  if (spaceBelow >= needed) {
+    return { openUp: false, maxHeight: null }
+  }
+  if (spaceAbove >= needed) {
+    return { openUp: true, maxHeight: null }
+  }
+  const openUp = spaceAbove > spaceBelow
+  return {
+    openUp,
+    maxHeight: Math.max(0, openUp ? spaceAbove : spaceBelow),
+  }
+}
+
 function SelectField({ field, value, onChange, onOptionHover }) {
   const [isOpen, setIsOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const [openUp, setOpenUp] = useState(false)
+  const [menuMaxHeight, setMenuMaxHeight] = useState(null)
   const containerRef = useRef(null)
   const buttonRef = useRef(null)
+  const listRef = useRef(null)
   const listId = useId()
   const options = normalizeSelectOptions(field.options)
 
@@ -69,9 +105,15 @@ function SelectField({ field, value, onChange, onOptionHover }) {
   const selected = selectedIndex >= 0 ? options[selectedIndex] : null
   const displayLabel = selected?.label || value || 'Select...'
 
+  const resetPlacement = () => {
+    setOpenUp(false)
+    setMenuMaxHeight(null)
+  }
+
   const closeMenu = () => {
     setIsOpen(false)
     setHighlightedIndex(-1)
+    resetPlacement()
     buttonRef.current?.focus()
   }
 
@@ -89,6 +131,7 @@ function SelectField({ field, value, onChange, onOptionHover }) {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
         setIsOpen(false)
         setHighlightedIndex(-1)
+        resetPlacement()
         buttonRef.current?.focus()
       }
     }
@@ -97,6 +140,29 @@ function SelectField({ field, value, onChange, onOptionHover }) {
     return () => {
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [isOpen])
+
+  useLayoutEffect(() => {
+    if (!isOpen) return
+
+    const updatePlacement = () => {
+      const trigger = buttonRef.current
+      if (!trigger) return
+      const next = measureMenuPlacement(trigger, listRef.current)
+      setOpenUp((prev) => (prev === next.openUp ? prev : next.openUp))
+      setMenuMaxHeight((prev) => (prev === next.maxHeight ? prev : next.maxHeight))
+    }
+
+    updatePlacement()
+    const scrollParents = getScrollParents(buttonRef.current)
+    window.addEventListener('resize', updatePlacement)
+    window.addEventListener('scroll', updatePlacement, true)
+    scrollParents.forEach((el) => el.addEventListener('scroll', updatePlacement, { passive: true }))
+    return () => {
+      window.removeEventListener('resize', updatePlacement)
+      window.removeEventListener('scroll', updatePlacement, true)
+      scrollParents.forEach((el) => el.removeEventListener('scroll', updatePlacement))
     }
   }, [isOpen])
 
@@ -187,10 +253,14 @@ function SelectField({ field, value, onChange, onOptionHover }) {
 
       {isOpen && (
         <ul
+          ref={listRef}
           id={listId}
           role="listbox"
           aria-labelledby={`${listId}-trigger`}
-          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-800 py-1 shadow-xl"
+          className={`absolute left-0 right-0 z-50 max-h-60 w-full overflow-y-auto rounded-md border border-slate-700 bg-slate-800 py-1 shadow-xl ${
+            openUp ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
+          style={menuMaxHeight != null ? { maxHeight: menuMaxHeight } : undefined}
         >
           {options.map((opt, index) => {
             const isSelected = value === opt.id
