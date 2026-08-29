@@ -111,6 +111,11 @@ export default function ChatPanel() {
   const endRef = useRef(null)
   const abortRef = useRef(false)
   const formRef = useRef(null)
+  const inputRef = useRef(null)
+
+  const focusComposer = () => {
+    inputRef.current?.focus()
+  }
 
   const name = String(character.name || '').trim()
   const portrait = generatedImages?.profile || generatedImages?.tpose
@@ -281,6 +286,7 @@ ${presence === 'inperson' ? 'If you are working on a car / in a shop / on a job 
     replaceChatApiAndUi({ ui: nextUi, api: nextApi, photos: photosAcc })
     setInput('')
     setSending(true)
+    requestAnimationFrame(focusComposer)
 
     try {
       const reply = await generateChatReply(apiKey, systemPrompt, nextApi, {
@@ -398,6 +404,7 @@ ${presence === 'inperson' ? 'If you are working on a car / in a shop / on a job 
     } finally {
       setSending(false)
       setTyping(false)
+      requestAnimationFrame(focusComposer)
     }
   }
 
@@ -658,13 +665,13 @@ ${presence === 'inperson' ? 'If you are working on a car / in a shop / on a job 
 
         <form ref={formRef} onSubmit={handleSend} className="shrink-0 border-t border-slate-800 p-3 flex gap-2 items-end">
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleComposerKeyDown}
             placeholder={presence === 'inperson'
               ? `Message ${name}…  *actions* · "spoken words"`
               : `Message ${name}…`}
-            disabled={sending}
             rows={2}
             className="input-field flex-1 text-sm resize-none min-h-[44px] max-h-40"
           />
