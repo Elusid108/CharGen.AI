@@ -1,59 +1,117 @@
 /**
- * Wardrobe draft helpers: look numbers, migration, prompt compile, lock-aware dice.
+ * Wardrobe draft helpers: line items, migration, prompt compile, dice.
  */
 
 import { pickWeightedFrom } from '../data/options'
+import { generateId } from './imageUtils'
 import {
   CUSTOM_ID,
   NONE_ID,
   STYLE_TAG_IDS,
   STYLE_GENRE_WEIGHTS,
   WARDROBE_SLOT_CATALOGS,
+  WARDROBE_ITEM_TYPES,
+  WARDROBE_LOCATIONS,
   findWardrobeOption,
+  slotForItemType,
+  defaultLocationForType,
 } from '../data/options/wardrobe'
 
 const LOOK_NAME_RE = /^Look #(\d+)$/
 
-const GARMENT_SLOTS = ['top', 'bottom', 'onePiece', 'outerwear', 'footwear']
 const MODIFIER_SLOTS = ['palette', 'fabric', 'condition']
+const ITEM_TYPE_IDS = WARDROBE_ITEM_TYPES.map((t) => t.id)
 
 export function customFieldKey(slot) {
   return `custom${slot.charAt(0).toUpperCase()}${slot.slice(1)}`
+}
+
+export function emptyOutfitItem(overrides = {}) {
+  const type = ITEM_TYPE_IDS.includes(overrides.type) ? overrides.type : 'top'
+  const garment = typeof overrides.garment === 'string' ? overrides.garment : ''
+  return {
+    id: overrides.id || generateId(),
+    style: STYLE_TAG_IDS.includes(overrides.style) ? overrides.style : 'Casual',
+    type,
+    garment,
+    customGarment: typeof overrides.customGarment === 'string' ? overrides.customGarment : '',
+    material: typeof overrides.material === 'string' ? overrides.material : '',
+    customMaterial: typeof overrides.customMaterial === 'string' ? overrides.customMaterial : '',
+    condition: typeof overrides.condition === 'string' ? overrides.condition : '',
+    customCondition: typeof overrides.customCondition === 'string' ? overrides.customCondition : '',
+    color: typeof overrides.color === 'string' ? overrides.color : '',
+    customColor: typeof overrides.customColor === 'string' ? overrides.customColor : '',
+    location: typeof overrides.location === 'string' && overrides.location
+      ? overrides.location
+      : defaultLocationForType(type, garment),
+    customLocation: typeof overrides.customLocation === 'string' ? overrides.customLocation : '',
+  }
 }
 
 export function emptyOutfitDraft() {
   return {
     name: '',
     styleTag: 'Casual',
-    occupancy: 'separates',
-    top: '',
-    bottom: '',
-    onePiece: '',
-    outerwear: NONE_ID,
-    footwear: '',
-    accessories: [],
-    palette: '',
-    fabric: '',
-    condition: '',
-    customTop: '',
-    customBottom: '',
-    customOnePiece: '',
-    customOuterwear: '',
-    customFootwear: '',
-    customAccessories: '',
-    customPalette: '',
-    customFabric: '',
-    customCondition: '',
+    items: [],
   }
 }
 
-/**
- * Normalize a saved or in-progress outfit to the expanded shape.
- * @param {Record<string, unknown> | null | undefined} raw
- */
-export function migrateOutfit(raw) {
-  const base = emptyOutfitDraft()
-  if (!raw || typeof raw !== 'object') return base
+function normalizeOutfitItem(raw) {
+  if (!raw || typeof raw !== 'object') return emptyOutfitItem()
+  return emptyOutfitItem(raw)
+}
+
+function resolvedCatalogText(slot, id, customText) {
+  if (!id || id === NONE_ID) return ''
+  if (id === CUSTOM_ID) return String(customText || '').trim()
+  const option = findWardrobeOption(slot, id)
+  return String(option?.image || option?.label || id).trim()
+}
+
+function itemFromLegacySlot(type, garmentId, customText, shared) {
+  if (!garmentId || garmentId === NONE_ID) return null
+  return emptyOutfitItem({
+    style: shared.style,
+    type,
+    garment: garmentId,
+    customGarment: garmentId === CUSTOM_ID ? String(customText || '') : '',
+    material: shared.material,
+    customMaterial: shared.customMaterial,
+    condition: shared.condition,
+    customCondition: shared.customCondition,
+    color: shared.color,
+    customColor: shared.customColor,
+    location: defaultLocationForType(type, garmentId),
+  })
+}
+
+function legacySlotsToItems(raw) {
+  const style = STYLE_TAG_IDS.includes(raw.styleTag) ? raw.styleTag : 'Casual'
+  const shared = {
+    style,
+    material: typeof raw.fabric === 'string' ? raw.fabric : '',
+    customMaterial: typeof raw.customFabric === 'string' ? raw.customFabric : '',
+    condition: typeof raw.condition === 'string' ? raw.condition : '',
+    customCondition: typeof raw.customCondition === 'string' ? raw.customCondition : '',
+    color: typeof raw.palette === 'string' ? raw.palette : '',
+    customColor: typeof raw.customPalette === 'string' ? raw.customPalette : '',
+  }
+
+  const items = []
+  if (raw.occupancy === 'one-piece') {
+    const one = itemFromLegacySlot('onePiece', raw.onePiece, raw.customOnePiece, shared)
+    if (one) items.push(one)
+  } else {
+    const top = itemFromLegacySlot('top', raw.top, raw.customTop, shared)
+    const bottom = itemFromLegacySlot('bottom', raw.bottom, raw.customBottom, shared)
+    if (top) items.push(top)
+    if (bottom) items.push(bottom)
+  }
+
+  const outer = itemFromLegacySlot('outerwear', raw.outerwear, raw.customOuterwear, shared)
+  if (outer) items.push(outer)
+  const feet = itemFromLegacySlot('footwear', raw.footwear, raw.customFootwear, shared)
+  if (feet) items.push(feet)
 
   let accessories = raw.accessories
   if (Array.isArray(accessories)) {
@@ -63,26 +121,39 @@ export function migrateOutfit(raw) {
   } else {
     accessories = [String(accessories)]
   }
+  for (const id of accessories) {
+    const acc = itemFromLegacySlot(
+      'accessory',
+      id,
+      id === CUSTOM_ID ? raw.customAccessories : '',
+      shared,
+    )
+    if (acc) items.push(acc)
+  }
+  return items
+}
+
+/**
+ * Normalize a saved or in-progress outfit. Legacy slot recipes become `items[]`.
+ * @param {Record<string, unknown> | null | undefined} raw
+ */
+export function migrateOutfit(raw) {
+  const base = emptyOutfitDraft()
+  if (!raw || typeof raw !== 'object') return base
+
+  let items
+  if (Array.isArray(raw.items) && raw.items.length) {
+    items = raw.items.map((row) => normalizeOutfitItem(row))
+  } else {
+    items = legacySlotsToItems(raw)
+  }
 
   return {
     ...base,
     ...raw,
-    accessories,
-    occupancy: raw.occupancy === 'one-piece' ? 'one-piece' : 'separates',
-    outerwear: raw.outerwear || NONE_ID,
-    onePiece: typeof raw.onePiece === 'string' ? raw.onePiece : '',
-    palette: typeof raw.palette === 'string' ? raw.palette : '',
-    fabric: typeof raw.fabric === 'string' ? raw.fabric : '',
-    condition: typeof raw.condition === 'string' ? raw.condition : '',
-    customTop: typeof raw.customTop === 'string' ? raw.customTop : '',
-    customBottom: typeof raw.customBottom === 'string' ? raw.customBottom : '',
-    customOnePiece: typeof raw.customOnePiece === 'string' ? raw.customOnePiece : '',
-    customOuterwear: typeof raw.customOuterwear === 'string' ? raw.customOuterwear : '',
-    customFootwear: typeof raw.customFootwear === 'string' ? raw.customFootwear : '',
-    customAccessories: typeof raw.customAccessories === 'string' ? raw.customAccessories : '',
-    customPalette: typeof raw.customPalette === 'string' ? raw.customPalette : '',
-    customFabric: typeof raw.customFabric === 'string' ? raw.customFabric : '',
-    customCondition: typeof raw.customCondition === 'string' ? raw.customCondition : '',
+    name: typeof raw.name === 'string' ? raw.name : '',
+    styleTag: STYLE_TAG_IDS.includes(raw.styleTag) ? raw.styleTag : 'Casual',
+    items,
   }
 }
 
@@ -101,12 +172,30 @@ export function nextLookNumber(wardrobe) {
   return max + 1
 }
 
-function resolvedSlotText(outfit, slot) {
-  const id = outfit[slot]
+function resolvedLocationText(item) {
+  const id = item.location
   if (!id || id === NONE_ID) return ''
-  if (id === CUSTOM_ID) return String(outfit[customFieldKey(slot)] || '').trim()
-  const option = findWardrobeOption(slot, id)
+  if (id === CUSTOM_ID) return String(item.customLocation || '').trim()
+  const option = WARDROBE_LOCATIONS.find((o) => o.id === id)
   return String(option?.image || id).trim()
+}
+
+function compileItemPrompt(item) {
+  const row = normalizeOutfitItem(item)
+  const slot = slotForItemType(row.type)
+  const garment = resolvedCatalogText(slot, row.garment, row.customGarment)
+  if (!garment) return ''
+  const bits = [garment]
+  const color = resolvedCatalogText('palette', row.color, row.customColor)
+  const material = resolvedCatalogText('fabric', row.material, row.customMaterial)
+  const condition = resolvedCatalogText('condition', row.condition, row.customCondition)
+  if (color) bits.push(color)
+  if (material) bits.push(material)
+  if (condition) bits.push(condition)
+  const loc = resolvedLocationText(row)
+  if (loc) bits.push(loc)
+  if (row.style && row.style !== 'Casual') bits.push(`(${row.style} style)`)
+  return bits.join(', ')
 }
 
 /**
@@ -119,53 +208,33 @@ export function compileOutfitPrompt(outfit) {
   const name = String(o.name || '').trim()
   const style = o.styleTag || 'Casual'
   parts.push(name ? `Outfit "${name}" (${style}).` : `Outfit (${style}).`)
-
-  if (o.occupancy === 'one-piece') {
-    const piece = resolvedSlotText(o, 'onePiece')
-    if (piece) parts.push(piece)
-  } else {
-    const top = resolvedSlotText(o, 'top')
-    const bottom = resolvedSlotText(o, 'bottom')
-    if (top) parts.push(top)
-    if (bottom) parts.push(bottom)
+  for (const item of o.items || []) {
+    const line = compileItemPrompt(item)
+    if (line) parts.push(line)
   }
-
-  const outer = resolvedSlotText(o, 'outerwear')
-  if (outer) parts.push(outer)
-  const feet = resolvedSlotText(o, 'footwear')
-  if (feet) parts.push(feet)
-
-  const accessoryBits = []
-  for (const id of o.accessories || []) {
-    if (!id || id === NONE_ID) continue
-    if (id === CUSTOM_ID) {
-      const text = String(o.customAccessories || '').trim()
-      if (text) accessoryBits.push(text)
-    } else {
-      const option = findWardrobeOption('accessories', id)
-      accessoryBits.push(String(option?.image || id).trim())
-    }
-  }
-  if (accessoryBits.length) parts.push(accessoryBits.join(', '))
-
-  const palette = resolvedSlotText(o, 'palette')
-  const fabric = resolvedSlotText(o, 'fabric')
-  const condition = resolvedSlotText(o, 'condition')
-  const mods = []
-  if (palette) mods.push(`palette ${palette}`)
-  if (fabric) mods.push(fabric)
-  if (condition) mods.push(condition)
-  if (mods.length) parts.push(mods.join(', '))
-
   return parts.filter(Boolean).join(' ')
+}
+
+export function outfitItemLabel(item) {
+  const row = normalizeOutfitItem(item)
+  const slot = slotForItemType(row.type)
+  const garment = row.garment === CUSTOM_ID
+    ? (String(row.customGarment || '').trim() || 'Custom')
+    : (row.garment || '')
+  const typeLabel = WARDROBE_ITEM_TYPES.find((t) => t.id === row.type)?.label || row.type
+  const loc = row.location === CUSTOM_ID
+    ? (String(row.customLocation || '').trim() || 'custom location')
+    : row.location
+  return [typeLabel, garment, loc].filter(Boolean).join(' · ')
 }
 
 export function outfitSlotLabel(outfit, slot) {
   const o = migrateOutfit(outfit)
-  const id = o[slot]
-  if (!id || id === NONE_ID) return ''
-  if (id === CUSTOM_ID) return String(o[customFieldKey(slot)] || '').trim() || 'Custom'
-  return String(id)
+  if (slot === 'styleTag') return o.styleTag || ''
+  const type = slot === 'accessories' ? 'accessory' : slot
+  const match = (o.items || []).find((item) => item.type === type)
+  if (!match) return ''
+  return outfitItemLabel(match)
 }
 
 function isLocked(lockedFields, id) {
@@ -182,7 +251,7 @@ function poolForSlot(slot, styleTag, presentationMode) {
   const diceable = list.filter((o) => o.id !== CUSTOM_ID)
   const styled = diceable.filter((o) => {
     if (!coverageAllowed(o, presentationMode)) return false
-    if (MODIFIER_SLOTS.includes(slot)) return true
+    if (MODIFIER_SLOTS.includes(slot) || slot === 'location') return true
     if (o.id === NONE_ID) return true
     if (!styleTag || !o.styles?.length) return true
     return o.styles.includes(styleTag)
@@ -207,37 +276,19 @@ function pickStyleTag(genre) {
   return pickWeightedFrom(options)
 }
 
-function constrainOccupancy(lockedFields) {
-  if (isLocked(lockedFields, 'top') || isLocked(lockedFields, 'bottom')) return 'separates'
-  if (isLocked(lockedFields, 'onePiece')) return 'one-piece'
-  return null
-}
-
-function pickAccessories(styleTag, presentationMode) {
-  const pool = poolForSlot('accessories', styleTag, presentationMode)
-  const roll = Math.random()
-  const count = roll < 0.32 ? 0 : roll < 0.78 ? 1 : 2
-  const picked = []
-  const remaining = [...pool]
-  for (let i = 0; i < count && remaining.length; i++) {
-    const id = pickWeightedFrom(remaining)
-    picked.push(id)
-    const idx = remaining.findIndex((o) => o.id === id)
-    if (idx >= 0) remaining.splice(idx, 1)
-  }
-  return picked
-}
-
-function clearStaleCustom(next, lockedFields) {
-  const out = { ...next }
-  for (const slot of [...GARMENT_SLOTS, ...MODIFIER_SLOTS]) {
-    if (isLocked(lockedFields, slot)) continue
-    if (out[slot] !== CUSTOM_ID) out[customFieldKey(slot)] = ''
-  }
-  if (!isLocked(lockedFields, 'accessories') && !(out.accessories || []).includes(CUSTOM_ID)) {
-    out.customAccessories = ''
-  }
-  return out
+function rollItem(type, styleTag, presentationMode) {
+  const slot = slotForItemType(type)
+  const garment = pickId(poolForSlot(slot, styleTag, presentationMode))
+  if (!garment || garment === NONE_ID) return null
+  return emptyOutfitItem({
+    style: styleTag,
+    type,
+    garment,
+    material: pickId(poolForSlot('fabric', styleTag, presentationMode)),
+    condition: pickId(poolForSlot('condition', styleTag, presentationMode)),
+    color: pickId(poolForSlot('palette', styleTag, presentationMode)),
+    location: defaultLocationForType(type, garment),
+  })
 }
 
 /**
@@ -254,60 +305,54 @@ export function randomizeOutfitDraft(draft, lockedFields = {}, ctx = {}) {
     assignName = true,
   } = ctx
 
-  let next = migrateOutfit(draft)
-  const locked = (id) => isLocked(lockedFields, id)
-
-  if (!locked('styleTag')) {
-    next.styleTag = pickStyleTag(genre)
+  const prev = migrateOutfit(draft)
+  const next = {
+    ...prev,
+    styleTag: isLocked(lockedFields, 'styleTag') ? prev.styleTag : pickStyleTag(genre),
   }
-
-  const forcedOccupancy = constrainOccupancy(lockedFields)
-  if (!locked('occupancy')) {
-    next.occupancy = forcedOccupancy || (Math.random() < 0.28 ? 'one-piece' : 'separates')
-  } else if (forcedOccupancy && next.occupancy !== forcedOccupancy) {
-    next.occupancy = forcedOccupancy
-  }
-
   const style = next.styleTag || 'Casual'
 
-  if (next.occupancy === 'one-piece') {
-    if (!locked('onePiece')) next.onePiece = pickId(poolForSlot('onePiece', style, presentationMode))
-    if (!locked('top')) next.top = ''
-    if (!locked('bottom')) next.bottom = ''
-  } else {
-    if (!locked('top')) next.top = pickId(poolForSlot('top', style, presentationMode))
-    if (!locked('bottom')) next.bottom = pickId(poolForSlot('bottom', style, presentationMode))
-    if (!locked('onePiece')) next.onePiece = ''
+  if (!isLocked(lockedFields, 'items')) {
+    const items = []
+    const onePiece = Math.random() < 0.28
+    if (onePiece) {
+      const piece = rollItem('onePiece', style, presentationMode)
+      if (piece) items.push(piece)
+    } else {
+      const top = rollItem('top', style, presentationMode)
+      const bottom = rollItem('bottom', style, presentationMode)
+      if (top) items.push(top)
+      if (bottom) items.push(bottom)
+    }
+    if (Math.random() < 0.55) {
+      const outer = rollItem('outerwear', style, presentationMode)
+      if (outer) items.push(outer)
+    }
+    const feet = rollItem('footwear', style, presentationMode)
+    if (feet) items.push(feet)
+    const accRoll = Math.random()
+    const accCount = accRoll < 0.32 ? 0 : accRoll < 0.78 ? 1 : 2
+    for (let i = 0; i < accCount; i++) {
+      const acc = rollItem('accessory', style, presentationMode)
+      if (acc) items.push(acc)
+    }
+    next.items = items
   }
-
-  if (!locked('outerwear')) {
-    next.outerwear = pickId(poolForSlot('outerwear', style, presentationMode)) || NONE_ID
-  }
-  if (!locked('footwear')) {
-    next.footwear = pickId(poolForSlot('footwear', style, presentationMode))
-  }
-  if (!locked('accessories')) {
-    next.accessories = pickAccessories(style, presentationMode)
-  }
-  if (!locked('palette')) next.palette = pickId(poolForSlot('palette', style, presentationMode))
-  if (!locked('fabric')) next.fabric = pickId(poolForSlot('fabric', style, presentationMode))
-  if (!locked('condition')) next.condition = pickId(poolForSlot('condition', style, presentationMode))
 
   if (assignName && isAutoLookName(next.name)) {
     next.name = `Look #${nextLookNumber(wardrobe)}`
   }
 
-  return clearStaleCustom(next, lockedFields)
+  return next
 }
 
 /**
- * Reroll one unlocked trait. Style dice also rerolls unlocked garments so the recipe stays coherent.
+ * Reroll one unlocked trait. Style dice also rerolls unlocked items so the recipe stays coherent.
  */
 export function randomizeOutfitTrait(draft, traitId, lockedFields = {}, ctx = {}) {
   if (isLocked(lockedFields, traitId)) return migrateOutfit(draft)
 
   const base = migrateOutfit(draft)
-  const presentationMode = ctx.presentationMode || 'canonical'
   const genre = ctx.genre || 'Mixed'
   const noName = { ...ctx, assignName: false }
 
@@ -316,23 +361,60 @@ export function randomizeOutfitTrait(draft, traitId, lockedFields = {}, ctx = {}
     return randomizeOutfitDraft(next, { ...lockedFields, styleTag: true }, noName)
   }
 
-  if (traitId === 'occupancy') {
-    const forced = constrainOccupancy(lockedFields)
-    const occupancy = forced || (Math.random() < 0.28 ? 'one-piece' : 'separates')
-    const next = { ...base, occupancy }
-    return randomizeOutfitDraft(next, { ...lockedFields, occupancy: true, styleTag: true }, noName)
+  if (traitId === 'items') {
+    return randomizeOutfitDraft(base, { ...lockedFields, styleTag: true }, noName)
   }
 
-  if (traitId === 'accessories') {
+  return base
+}
+
+/**
+ * Reroll one field on a line item (or the whole garment stack for that row).
+ */
+export function randomizeOutfitItem(item, field, ctx = {}) {
+  const presentationMode = ctx.presentationMode || 'canonical'
+  const row = normalizeOutfitItem(item)
+  const style = row.style || ctx.styleTag || 'Casual'
+
+  if (field === 'style') {
+    const nextStyle = pickStyleTag(ctx.genre || 'Mixed')
+    const rolled = rollItem(row.type, nextStyle, presentationMode)
+    return rolled ? { ...rolled, id: row.id, style: nextStyle } : { ...row, style: nextStyle }
+  }
+
+  if (field === 'type') {
+    const type = pickWeightedFrom(WARDROBE_ITEM_TYPES.map((t) => ({ id: t.id, weight: 1 })))
+    const rolled = rollItem(type, style, presentationMode)
+    return rolled ? { ...rolled, id: row.id } : { ...row, type }
+  }
+
+  if (field === 'garment') {
+    const garment = pickId(poolForSlot(slotForItemType(row.type), style, presentationMode))
     return {
-      ...base,
-      accessories: pickAccessories(base.styleTag || 'Casual', presentationMode),
-      customAccessories: '',
+      ...row,
+      garment,
+      customGarment: '',
+      location: defaultLocationForType(row.type, garment),
     }
   }
 
-  const id = pickId(poolForSlot(traitId, base.styleTag || 'Casual', presentationMode))
-  const next = { ...base, [traitId]: id }
-  if (id !== CUSTOM_ID) next[customFieldKey(traitId)] = ''
-  return next
+  if (field === 'material') {
+    return { ...row, material: pickId(poolForSlot('fabric', style, presentationMode)), customMaterial: '' }
+  }
+  if (field === 'condition') {
+    return { ...row, condition: pickId(poolForSlot('condition', style, presentationMode)), customCondition: '' }
+  }
+  if (field === 'color') {
+    return { ...row, color: pickId(poolForSlot('palette', style, presentationMode)), customColor: '' }
+  }
+  if (field === 'location') {
+    const loc = pickId(WARDROBE_LOCATIONS.filter((o) => o.id !== CUSTOM_ID))
+    return { ...row, location: loc || defaultLocationForType(row.type, row.garment), customLocation: '' }
+  }
+
+  return row
+}
+
+export function garmentOptionsForType(type) {
+  return WARDROBE_SLOT_CATALOGS[slotForItemType(type)] || []
 }

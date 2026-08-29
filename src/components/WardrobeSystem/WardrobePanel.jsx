@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import {
-  Shirt, Plus, Trash2, Wand2, Download, Shuffle, X, Maximize2, Lock, Unlock,
+  Shirt, Plus, Trash2, Wand2, Download, Shuffle, X, Maximize2,
 } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
@@ -23,57 +23,27 @@ import {
 } from '../../utils/imageUtils'
 import {
   CUSTOM_ID,
-  NONE_ID,
   STYLE_TAG_IDS,
   WARDROBE_SLOT_CATALOGS,
+  WARDROBE_ITEM_TYPES,
+  WARDROBE_LOCATIONS,
+  defaultLocationForType,
 } from '../../data/options/wardrobe'
 import {
-  customFieldKey,
   emptyOutfitDraft,
+  emptyOutfitItem,
   migrateOutfit,
   compileOutfitPrompt,
-  outfitSlotLabel,
+  outfitItemLabel,
   randomizeOutfitDraft,
-  randomizeOutfitTrait,
+  randomizeOutfitItem,
+  garmentOptionsForType,
 } from '../../utils/wardrobe'
-
-function TraitRow({ label, traitId, lockedFields, onToggleLock, onDice, children }) {
-  const locked = !!lockedFields[traitId]
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-1">
-        <button
-          type="button"
-          onClick={() => onToggleLock(traitId)}
-          aria-pressed={locked}
-          aria-label={locked ? `Unlock ${label}` : `Lock ${label}`}
-          className="shrink-0 p-1 rounded-md hover:bg-slate-800/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-        >
-          {locked ? (
-            <Lock size={14} className="text-amber-400" strokeWidth={2.25} />
-          ) : (
-            <Unlock size={14} className="text-slate-500" strokeWidth={2} />
-          )}
-        </button>
-        <span className="section-heading flex-1 min-w-0">{label}</span>
-        <button
-          type="button"
-          disabled={locked}
-          onClick={() => onDice(traitId)}
-          aria-label={`Randomize ${label}`}
-          className="shrink-0 p-1 rounded-md text-slate-500 hover:text-indigo-300 hover:bg-slate-800/80 transition-colors disabled:opacity-30 disabled:pointer-events-none focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-        >
-          <Shuffle size={14} />
-        </button>
-      </div>
-      {children}
-    </div>
-  )
-}
+import SeedControl from '../shared/SeedControl'
 
 function SlotSelect({ value, options, onChange, placeholder = 'Select...' }) {
   return (
-    <select value={value || ''} onChange={(e) => onChange(e.target.value)} className="input-field w-full">
+    <select value={value || ''} onChange={(e) => onChange(e.target.value)} className="input-field w-full text-xs">
       <option value="">{placeholder}</option>
       {options.map((o) => (
         <option key={o.id} value={o.id}>
@@ -84,25 +54,13 @@ function SlotSelect({ value, options, onChange, placeholder = 'Select...' }) {
   )
 }
 
-function CustomText({ slot, draft, onChange, placeholder }) {
-  if (draft[slot] !== CUSTOM_ID) return null
-  const key = customFieldKey(slot)
-  return (
-    <input
-      type="text"
-      value={draft[key] || ''}
-      onChange={(e) => onChange(key, e.target.value)}
-      placeholder={placeholder}
-      className="input-field w-full mt-2"
-    />
-  )
-}
-
 export default function WardrobePanel() {
   const character = useCharacterStore((s) => s.character)
   const apiKey = useCharacterStore((s) => s.apiKey)
   const availableImageModels = useCharacterStore((s) => s.availableImageModels)
   const presentationMode = useCharacterStore((s) => s.presentationMode)
+  const imagePrefs = useCharacterStore((s) => s.imagePrefs)
+  const patchImagePrefs = useCharacterStore((s) => s.patchImagePrefs)
   const wardrobe = useCharacterStore((s) => s.wardrobe)
   const addOutfit = useCharacterStore((s) => s.addOutfit)
   const updateOutfit = useCharacterStore((s) => s.updateOutfit)
@@ -113,7 +71,6 @@ export default function WardrobePanel() {
   const [generatingId, setGeneratingId] = useState(null)
   const [fullscreenImage, setFullscreenImage] = useState(null)
   const [draft, setDraft] = useState(emptyOutfitDraft)
-  const [lockedFields, setLockedFields] = useState({})
 
   const diceCtx = () => ({
     presentationMode,
@@ -125,24 +82,14 @@ export default function WardrobePanel() {
     setDraft((prev) => ({ ...prev, [key]: value }))
   }
 
-  const toggleLock = (traitId) => {
-    setLockedFields((prev) => {
-      const next = { ...prev }
-      if (next[traitId]) delete next[traitId]
-      else next[traitId] = true
-      return next
-    })
-  }
-
   const closeForm = () => {
     setShowForm(false)
     setDraft(emptyOutfitDraft())
-    setLockedFields({})
   }
 
   const handleHeaderRandomize = () => {
     setDraft((prev) =>
-      randomizeOutfitDraft(showForm ? prev : emptyOutfitDraft(), showForm ? lockedFields : {}, {
+      randomizeOutfitDraft(showForm ? prev : emptyOutfitDraft(), {}, {
         ...diceCtx(),
         assignName: true,
       }),
@@ -152,12 +99,58 @@ export default function WardrobePanel() {
 
   const handleNewOutfit = () => {
     setDraft(emptyOutfitDraft())
-    setLockedFields({})
     setShowForm(true)
   }
 
-  const handleTraitDice = (traitId) => {
-    setDraft((prev) => randomizeOutfitTrait(prev, traitId, lockedFields, diceCtx()))
+  const addItem = () => {
+    setDraft((prev) => ({
+      ...migrateOutfit(prev),
+      items: [...(migrateOutfit(prev).items || []), emptyOutfitItem({ style: prev.styleTag || 'Casual' })],
+    }))
+  }
+
+  const patchItem = (itemId, patch) => {
+    setDraft((prev) => {
+      const next = migrateOutfit(prev)
+      return {
+        ...next,
+        items: (next.items || []).map((item) => {
+          if (item.id !== itemId) return item
+          const merged = { ...item, ...patch }
+          if (patch.type && patch.type !== item.type) {
+            merged.garment = ''
+            merged.customGarment = ''
+            merged.location = defaultLocationForType(patch.type, '')
+          }
+          if (patch.garment && patch.garment !== item.garment) {
+            merged.location = defaultLocationForType(merged.type, patch.garment)
+            if (patch.garment !== CUSTOM_ID) merged.customGarment = ''
+          }
+          return merged
+        }),
+      }
+    })
+  }
+
+  const removeItem = (itemId) => {
+    setDraft((prev) => {
+      const next = migrateOutfit(prev)
+      return { ...next, items: (next.items || []).filter((item) => item.id !== itemId) }
+    })
+  }
+
+  const diceItem = (itemId, field) => {
+    setDraft((prev) => {
+      const next = migrateOutfit(prev)
+      return {
+        ...next,
+        items: (next.items || []).map((item) => (
+          item.id === itemId
+            ? randomizeOutfitItem(item, field, { ...diceCtx(), styleTag: next.styleTag })
+            : item
+        )),
+      }
+    })
   }
 
   const handleAddOutfit = () => {
@@ -165,9 +158,14 @@ export default function WardrobePanel() {
       addToast('Please name the outfit', 'warning')
       return
     }
+    const migrated = migrateOutfit(draft)
+    if (!(migrated.items || []).length) {
+      addToast('Add at least one item to the outfit', 'warning')
+      return
+    }
 
     const outfitToAdd = {
-      ...migrateOutfit(draft),
+      ...migrated,
       name: draft.name.trim(),
       image: null,
       id: generateId(),
@@ -189,7 +187,7 @@ export default function WardrobePanel() {
 
     try {
       const fullAttire = compileOutfitPrompt(outfit)
-
+      const prefs = useCharacterStore.getState().imagePrefs || {}
       const { selectedImageModel: storeImageModel, generatedImages } = useCharacterStore.getState()
       const modelId = storeImageModel || DEFAULT_IMAGE_MODEL
       const canRef = modelSupportsReferenceImages(availableImageModels, modelId)
@@ -202,9 +200,12 @@ export default function WardrobePanel() {
           5000,
         )
       }
-      const extraNegative = mergeNegativePrompt('outfit', presentationMode, '')
+      const extraNegative = mergeNegativePrompt('outfit', presentationMode, prefs.exclude || '')
 
       const prompt = buildImagePrompt(character, 'outfit', {
+        artStyle: prefs.artStyle,
+        lighting: prefs.lighting,
+        mood: prefs.mood,
         presentationMode,
         hasReferenceImage: !!referenceImageBase64,
         poseReference: poseSource,
@@ -215,6 +216,7 @@ export default function WardrobePanel() {
       const rawBase64 = await callGenerateImage(apiKey, prompt, {
         aspectRatio: '3:4',
         modelId,
+        seed: prefs.seed,
         negativePrompt: extraNegative,
         imageEndpoint:
           availableImageModels.length > 0
@@ -233,41 +235,22 @@ export default function WardrobePanel() {
     }
   }
 
-  const accessoryOptions = WARDROBE_SLOT_CATALOGS.accessories.filter(
-    (o) => !(draft.accessories || []).includes(o.id),
-  )
-
-  const addAccessory = (id) => {
-    if (!id) return
-    setDraft((prev) => ({
-      ...prev,
-      accessories: [...(prev.accessories || []), id],
-    }))
-  }
-
-  const removeAccessory = (id) => {
-    setDraft((prev) => ({
-      ...prev,
-      accessories: (prev.accessories || []).filter((a) => a !== id),
-      ...(id === CUSTOM_ID ? { customAccessories: '' } : {}),
-    }))
-  }
+  const formDraft = migrateOutfit(draft)
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 animate-fade-in">
-      <div className="flex justify-between items-end">
+      <div className="flex justify-between items-end gap-4">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1">Wardrobe</h2>
           <p className="text-slate-400 text-sm">
-            Build looks with lockable traits and dice. Random names stay Look #1, Look #2, and so on.
+            Stack named looks from individual items — type, material, color, and where it sits.
             {' '}
             <span className="text-slate-500">
-              Uses the mannequin pose when one exists, otherwise the T-pose lock.
-              Presentation is {presentationMode === 'thirst' ? 'Thirst' : 'Canonical'} (set in Generation Studio).
+              Uses the mannequin pose when one exists. Presentation is {presentationMode === 'thirst' ? 'Thirst' : 'Canonical'} (set on the Profile card).
             </span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <button type="button" onClick={handleHeaderRandomize} className="btn-secondary text-sm flex items-center gap-2">
             <Shuffle size={14} /> Random Outfit
           </button>
@@ -275,6 +258,16 @@ export default function WardrobePanel() {
             <Plus size={14} /> New Outfit
           </button>
         </div>
+      </div>
+
+      <div className="glass-panel p-4">
+        <SeedControl
+          seed={imagePrefs?.seed ?? 0}
+          onChange={(next) => patchImagePrefs({ seed: next })}
+        />
+        <p className="text-[11px] text-slate-500 mt-2">
+          Same seed as Generation Studio. Saved with the character.
+        </p>
       </div>
 
       {showForm && (
@@ -290,22 +283,16 @@ export default function WardrobePanel() {
             <div>
               <label className="section-heading mb-1 block">Outfit Name</label>
               <input
-                value={draft.name}
+                value={formDraft.name}
                 onChange={(e) => patchDraft('name', e.target.value)}
-                placeholder="E.g., Battle Armor, Date Night..."
+                placeholder="E.g., Battle Armor, Shop clothes..."
                 className="input-field w-full"
               />
             </div>
-
-            <TraitRow
-              label="Style Tag"
-              traitId="styleTag"
-              lockedFields={lockedFields}
-              onToggleLock={toggleLock}
-              onDice={handleTraitDice}
-            >
+            <div>
+              <label className="section-heading mb-1 block">Look style</label>
               <select
-                value={draft.styleTag}
+                value={formDraft.styleTag}
                 onChange={(e) => patchDraft('styleTag', e.target.value)}
                 className="input-field w-full"
               >
@@ -313,195 +300,32 @@ export default function WardrobePanel() {
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-            </TraitRow>
+            </div>
+          </div>
 
-            <TraitRow
-              label="Occupancy"
-              traitId="occupancy"
-              lockedFields={lockedFields}
-              onToggleLock={toggleLock}
-              onDice={handleTraitDice}
-            >
-              <select
-                value={draft.occupancy}
-                onChange={(e) => patchDraft('occupancy', e.target.value)}
-                className="input-field w-full"
-              >
-                <option value="separates">Separates (top + bottom)</option>
-                <option value="one-piece">One-piece</option>
-              </select>
-            </TraitRow>
+          <div className="flex items-center justify-between mb-3">
+            <label className="section-heading">Items</label>
+            <button type="button" onClick={addItem} className="btn-secondary text-xs flex items-center gap-1">
+              <Plus size={12} /> Add item
+            </button>
+          </div>
 
-            {draft.occupancy === 'one-piece' ? (
-              <TraitRow
-                label="One-Piece"
-                traitId="onePiece"
-                lockedFields={lockedFields}
-                onToggleLock={toggleLock}
-                onDice={handleTraitDice}
-              >
-                <SlotSelect
-                  value={draft.onePiece}
-                  options={WARDROBE_SLOT_CATALOGS.onePiece}
-                  onChange={(v) => patchDraft('onePiece', v)}
-                />
-                <CustomText slot="onePiece" draft={draft} onChange={patchDraft} placeholder="Describe the one-piece..." />
-              </TraitRow>
-            ) : (
-              <>
-                <TraitRow
-                  label="Top"
-                  traitId="top"
-                  lockedFields={lockedFields}
-                  onToggleLock={toggleLock}
-                  onDice={handleTraitDice}
-                >
-                  <SlotSelect
-                    value={draft.top}
-                    options={WARDROBE_SLOT_CATALOGS.top}
-                    onChange={(v) => patchDraft('top', v)}
-                  />
-                  <CustomText slot="top" draft={draft} onChange={patchDraft} placeholder="Describe the top..." />
-                </TraitRow>
-                <TraitRow
-                  label="Bottom"
-                  traitId="bottom"
-                  lockedFields={lockedFields}
-                  onToggleLock={toggleLock}
-                  onDice={handleTraitDice}
-                >
-                  <SlotSelect
-                    value={draft.bottom}
-                    options={WARDROBE_SLOT_CATALOGS.bottom}
-                    onChange={(v) => patchDraft('bottom', v)}
-                  />
-                  <CustomText slot="bottom" draft={draft} onChange={patchDraft} placeholder="Describe the bottom..." />
-                </TraitRow>
-              </>
+          <div className="space-y-3 mb-4">
+            {(formDraft.items || []).length === 0 && (
+              <p className="text-xs text-slate-500 py-4 text-center border border-dashed border-slate-700 rounded-lg">
+                Click + to stack garments, accessories, and where they sit.
+              </p>
             )}
-
-            <TraitRow
-              label="Outerwear"
-              traitId="outerwear"
-              lockedFields={lockedFields}
-              onToggleLock={toggleLock}
-              onDice={handleTraitDice}
-            >
-              <SlotSelect
-                value={draft.outerwear}
-                options={WARDROBE_SLOT_CATALOGS.outerwear}
-                onChange={(v) => patchDraft('outerwear', v)}
-                placeholder="None"
+            {(formDraft.items || []).map((item, index) => (
+              <OutfitItemRow
+                key={item.id}
+                index={index}
+                item={item}
+                onChange={(patch) => patchItem(item.id, patch)}
+                onDice={(field) => diceItem(item.id, field)}
+                onRemove={() => removeItem(item.id)}
               />
-              <CustomText slot="outerwear" draft={draft} onChange={patchDraft} placeholder="Describe the outerwear..." />
-            </TraitRow>
-
-            <TraitRow
-              label="Footwear"
-              traitId="footwear"
-              lockedFields={lockedFields}
-              onToggleLock={toggleLock}
-              onDice={handleTraitDice}
-            >
-              <SlotSelect
-                value={draft.footwear}
-                options={WARDROBE_SLOT_CATALOGS.footwear}
-                onChange={(v) => patchDraft('footwear', v)}
-              />
-              <CustomText slot="footwear" draft={draft} onChange={patchDraft} placeholder="Describe the footwear..." />
-            </TraitRow>
-
-            <TraitRow
-              label="Accessories"
-              traitId="accessories"
-              lockedFields={lockedFields}
-              onToggleLock={toggleLock}
-              onDice={handleTraitDice}
-            >
-              <div className="flex flex-wrap gap-2 mb-2">
-                {(draft.accessories || []).map((id) => (
-                  <span
-                    key={id}
-                    className="inline-flex items-center gap-1 text-[11px] bg-slate-800 text-slate-300 px-2 py-1 rounded-full border border-slate-600"
-                  >
-                    {id === CUSTOM_ID ? (draft.customAccessories || 'Custom') : id}
-                    <button
-                      type="button"
-                      onClick={() => removeAccessory(id)}
-                      className="text-slate-500 hover:text-white"
-                      aria-label={`Remove ${id}`}
-                    >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <select
-                value=""
-                onChange={(e) => addAccessory(e.target.value)}
-                className="input-field w-full"
-                disabled={!!lockedFields.accessories || accessoryOptions.length === 0}
-              >
-                <option value="">Add accessory...</option>
-                {accessoryOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.label || o.id}</option>
-                ))}
-              </select>
-              {(draft.accessories || []).includes(CUSTOM_ID) && (
-                <input
-                  type="text"
-                  value={draft.customAccessories || ''}
-                  onChange={(e) => patchDraft('customAccessories', e.target.value)}
-                  placeholder="Describe custom accessories..."
-                  className="input-field w-full mt-2"
-                />
-              )}
-            </TraitRow>
-
-            <TraitRow
-              label="Palette"
-              traitId="palette"
-              lockedFields={lockedFields}
-              onToggleLock={toggleLock}
-              onDice={handleTraitDice}
-            >
-              <SlotSelect
-                value={draft.palette}
-                options={WARDROBE_SLOT_CATALOGS.palette}
-                onChange={(v) => patchDraft('palette', v)}
-              />
-              <CustomText slot="palette" draft={draft} onChange={patchDraft} placeholder="Describe the color palette..." />
-            </TraitRow>
-
-            <TraitRow
-              label="Fabric"
-              traitId="fabric"
-              lockedFields={lockedFields}
-              onToggleLock={toggleLock}
-              onDice={handleTraitDice}
-            >
-              <SlotSelect
-                value={draft.fabric}
-                options={WARDROBE_SLOT_CATALOGS.fabric}
-                onChange={(v) => patchDraft('fabric', v)}
-              />
-              <CustomText slot="fabric" draft={draft} onChange={patchDraft} placeholder="Describe the fabric..." />
-            </TraitRow>
-
-            <TraitRow
-              label="Condition"
-              traitId="condition"
-              lockedFields={lockedFields}
-              onToggleLock={toggleLock}
-              onDice={handleTraitDice}
-            >
-              <SlotSelect
-                value={draft.condition}
-                options={WARDROBE_SLOT_CATALOGS.condition}
-                onChange={(v) => patchDraft('condition', v)}
-              />
-              <CustomText slot="condition" draft={draft} onChange={patchDraft} placeholder="Describe wear and condition..." />
-            </TraitRow>
+            ))}
           </div>
 
           <button type="button" onClick={handleAddOutfit} className="btn-primary w-full flex items-center justify-center gap-2">
@@ -515,7 +339,7 @@ export default function WardrobePanel() {
           <Shirt size={48} className="mx-auto text-slate-700 mb-4" />
           <p className="text-slate-400 text-lg">No outfits yet</p>
           <p className="text-slate-600 text-sm mt-1">
-            Lock a style and hit Random Outfit, or build a look by hand
+            Hit Random Outfit, or build a look from stacked items
           </p>
         </div>
       ) : (
@@ -566,13 +390,151 @@ export default function WardrobePanel() {
   )
 }
 
+function DiceButton({ label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Randomize ${label}`}
+      className="shrink-0 p-1 rounded-md text-slate-500 hover:text-indigo-300 hover:bg-slate-800/80"
+    >
+      <Shuffle size={12} />
+    </button>
+  )
+}
+
+function OutfitItemRow({ index, item, onChange, onDice, onRemove }) {
+  const garments = garmentOptionsForType(item.type)
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold text-slate-500 uppercase">Item {index + 1}</span>
+        <button type="button" onClick={onRemove} className="text-slate-500 hover:text-red-400" aria-label="Remove item">
+          <Trash2 size={14} />
+        </button>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="section-heading">Style</span>
+            <DiceButton label="style" onClick={() => onDice('style')} />
+          </div>
+          <select value={item.style || 'Casual'} onChange={(e) => onChange({ style: e.target.value })} className="input-field w-full text-xs">
+            {STYLE_TAG_IDS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="section-heading">Type</span>
+            <DiceButton label="type" onClick={() => onDice('type')} />
+          </div>
+          <select value={item.type} onChange={(e) => onChange({ type: e.target.value })} className="input-field w-full text-xs">
+            {WARDROBE_ITEM_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="section-heading">Garment</span>
+            <DiceButton label="garment" onClick={() => onDice('garment')} />
+          </div>
+          <SlotSelect
+            value={item.garment}
+            options={garments}
+            onChange={(v) => onChange({ garment: v })}
+            placeholder="Pick garment..."
+          />
+          {item.garment === CUSTOM_ID && (
+            <input
+              value={item.customGarment || ''}
+              onChange={(e) => onChange({ customGarment: e.target.value })}
+              placeholder="Describe the garment..."
+              className="input-field w-full text-xs mt-1"
+            />
+          )}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="section-heading">Material</span>
+            <DiceButton label="material" onClick={() => onDice('material')} />
+          </div>
+          <SlotSelect
+            value={item.material}
+            options={WARDROBE_SLOT_CATALOGS.fabric}
+            onChange={(v) => onChange({ material: v })}
+          />
+          {item.material === CUSTOM_ID && (
+            <input
+              value={item.customMaterial || ''}
+              onChange={(e) => onChange({ customMaterial: e.target.value })}
+              placeholder="Describe the material..."
+              className="input-field w-full text-xs mt-1"
+            />
+          )}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="section-heading">Condition</span>
+            <DiceButton label="condition" onClick={() => onDice('condition')} />
+          </div>
+          <SlotSelect
+            value={item.condition}
+            options={WARDROBE_SLOT_CATALOGS.condition}
+            onChange={(v) => onChange({ condition: v })}
+          />
+          {item.condition === CUSTOM_ID && (
+            <input
+              value={item.customCondition || ''}
+              onChange={(e) => onChange({ customCondition: e.target.value })}
+              placeholder="Describe the condition..."
+              className="input-field w-full text-xs mt-1"
+            />
+          )}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="section-heading">Color</span>
+            <DiceButton label="color" onClick={() => onDice('color')} />
+          </div>
+          <SlotSelect
+            value={item.color}
+            options={WARDROBE_SLOT_CATALOGS.palette}
+            onChange={(v) => onChange({ color: v })}
+          />
+          {item.color === CUSTOM_ID && (
+            <input
+              value={item.customColor || ''}
+              onChange={(e) => onChange({ customColor: e.target.value })}
+              placeholder="Describe the color..."
+              className="input-field w-full text-xs mt-1"
+            />
+          )}
+        </div>
+        <div className="md:col-span-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="section-heading">Location</span>
+            <DiceButton label="location" onClick={() => onDice('location')} />
+          </div>
+          <SlotSelect
+            value={item.location}
+            options={WARDROBE_LOCATIONS}
+            onChange={(v) => onChange({ location: v })}
+          />
+          {item.location === CUSTOM_ID && (
+            <input
+              value={item.customLocation || ''}
+              onChange={(e) => onChange({ customLocation: e.target.value })}
+              placeholder="Where is it worn?"
+              className="input-field w-full text-xs mt-1"
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function OutfitCard({ outfit, isGenerating, onGenerate, onDelete, onDownload, onFullscreen }) {
-  const accessories = outfit.accessories || []
-  const extras = [
-    outfitSlotLabel(outfit, 'palette'),
-    outfitSlotLabel(outfit, 'fabric'),
-    outfitSlotLabel(outfit, 'condition'),
-  ].filter(Boolean)
+  const items = outfit.items || []
 
   return (
     <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden group">
@@ -627,28 +589,14 @@ function OutfitCard({ outfit, isGenerating, onGenerate, onDelete, onDownload, on
         </div>
 
         <div className="text-xs text-slate-500 space-y-0.5">
-          <p className="capitalize text-slate-400">{outfit.occupancy}</p>
-          {outfit.occupancy === 'one-piece' ? (
-            outfit.onePiece ? <p>One-piece: {outfitSlotLabel(outfit, 'onePiece')}</p> : null
+          {items.length === 0 ? (
+            <p>No items</p>
           ) : (
-            <>
-              {outfit.top ? <p>Top: {outfitSlotLabel(outfit, 'top')}</p> : null}
-              {outfit.bottom ? <p>Bottom: {outfitSlotLabel(outfit, 'bottom')}</p> : null}
-            </>
+            items.slice(0, 6).map((item) => (
+              <p key={item.id} className="truncate">{outfitItemLabel(item)}</p>
+            ))
           )}
-          {outfit.outerwear && outfit.outerwear !== NONE_ID ? (
-            <p>Outer: {outfitSlotLabel(outfit, 'outerwear')}</p>
-          ) : null}
-          {outfit.footwear ? <p>Feet: {outfitSlotLabel(outfit, 'footwear')}</p> : null}
-          {accessories.length > 0 ? (
-            <p>
-              Acc:{' '}
-              {accessories
-                .map((id) => (id === CUSTOM_ID ? (outfit.customAccessories || 'Custom') : id))
-                .join(', ')}
-            </p>
-          ) : null}
-          {extras.length > 0 ? <p>{extras.join(' · ')}</p> : null}
+          {items.length > 6 ? <p>+{items.length - 6} more</p> : null}
         </div>
 
         <div className="flex gap-2">

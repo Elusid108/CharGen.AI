@@ -232,11 +232,13 @@ export const CHARACTER_SECTIONS = {
 }
 
 /** Persist this on every library save. Bump when generatedImages or attribute shape changes. */
-export const CHARACTER_SCHEMA_VERSION = 6
+export const CHARACTER_SCHEMA_VERSION = 7
 
 export function emptyGeneratedImages() {
   return {
     profile: null,
+    profileCanonical: null,
+    profileThirst: null,
     tpose: null,
     side: null,
     back: null,
@@ -282,6 +284,46 @@ export function getDefaultCharacter() {
 export const DEFAULT_ART_STYLE = ', 3d render, pixar style'
 export const DEFAULT_LIGHTING = ', cinematic lighting, dramatic shadows'
 export const DEFAULT_MOOD = ', relaxed mood, calm, at ease'
+
+/** Gemini / Imagen integer seed range. */
+export const IMAGE_SEED_MIN = 0
+export const IMAGE_SEED_MAX = 2147483647
+
+export function randomImageSeed() {
+  return Math.floor(Math.random() * (IMAGE_SEED_MAX + 1))
+}
+
+export function clampImageSeed(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return IMAGE_SEED_MIN
+  return Math.max(IMAGE_SEED_MIN, Math.min(IMAGE_SEED_MAX, Math.round(n)))
+}
+
+/**
+ * @param {{ randomizeSeed?: boolean }} [opts]
+ */
+export function emptyImagePrefs(opts = {}) {
+  const { randomizeSeed = true } = opts
+  return {
+    artStyle: DEFAULT_ART_STYLE,
+    lighting: DEFAULT_LIGHTING,
+    mood: DEFAULT_MOOD,
+    exclude: '',
+    seed: randomizeSeed ? randomImageSeed() : 0,
+  }
+}
+
+export function normalizeImagePrefs(raw) {
+  const fallback = emptyImagePrefs({ randomizeSeed: false })
+  if (!raw || typeof raw !== 'object') return fallback
+  return {
+    artStyle: typeof raw.artStyle === 'string' ? raw.artStyle : fallback.artStyle,
+    lighting: typeof raw.lighting === 'string' ? raw.lighting : fallback.lighting,
+    mood: typeof raw.mood === 'string' ? raw.mood : fallback.mood,
+    exclude: typeof raw.exclude === 'string' ? raw.exclude : '',
+    seed: raw.seed == null ? fallback.seed : clampImageSeed(raw.seed),
+  }
+}
 
 export const ART_STYLES = [
   { label: 'Default (Concept Art)', value: '' },

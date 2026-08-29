@@ -31,10 +31,42 @@ export const BACK_VIEW_OCCLUDER_NEGATIVES =
   'tail growing from the stomach, occluders left in the front-lock screen position'
 
 /** Face-first reference for texted photos; lock is identity fallback. */
-export const CHAT_PHOTO_REFERENCE_ORDER = ['profile', 'tpose', 'mannequin', 'side', 'back']
+export const CHAT_PHOTO_REFERENCE_ORDER = [
+  'profile', 'profileCanonical', 'profileThirst', 'tpose', 'mannequin', 'side', 'back',
+]
 
 /** Library tiles prefer a portrait; body shots are fallbacks. */
-export const LIBRARY_THUMB_ORDER = ['profile', 'tpose', 'mannequin', 'side', 'back']
+export const LIBRARY_THUMB_ORDER = [
+  'profile', 'profileCanonical', 'profileThirst', 'tpose', 'mannequin', 'side', 'back',
+]
+
+/**
+ * Keep `profile` pointing at the Canonical or Thirst variant for the current mode.
+ * @param {Record<string, string | null | undefined> | null | undefined} generatedImages
+ * @param {'canonical' | 'thirst'} presentationMode
+ */
+export function syncActiveProfileAlias(generatedImages, presentationMode = 'canonical') {
+  const next = { ...(generatedImages || {}) }
+  const slot = presentationMode === 'thirst' ? 'profileThirst' : 'profileCanonical'
+  next.profile = next[slot] || next.profile || next.profileCanonical || next.profileThirst || null
+  return next
+}
+
+/**
+ * Old saves stored a single `profile`. Copy it into both variant slots.
+ * @param {Record<string, string | null | undefined> | null | undefined} generatedImages
+ * @param {'canonical' | 'thirst'} presentationMode
+ */
+export function migrateProfileSlots(generatedImages, presentationMode = 'canonical') {
+  const next = { ...(generatedImages || {}) }
+  if (next.profile && !next.profileCanonical && !next.profileThirst) {
+    next.profileCanonical = next.profile
+    next.profileThirst = next.profile
+  }
+  if (!next.profileCanonical && next.profileThirst) next.profileCanonical = next.profileThirst
+  if (!next.profileThirst && next.profileCanonical) next.profileThirst = next.profileCanonical
+  return syncActiveProfileAlias(next, presentationMode)
+}
 
 /**
  * Canonical body lock, then weaker fallbacks when the lock has not been generated yet.
@@ -88,9 +120,11 @@ export function resolveViewReference(generatedImages, imageType, frontLockOverri
  * @param {Record<string, string | null | undefined> | null | undefined} generatedImages
  * @returns {string | null}
  */
-export function resolveChatPhotoReference(generatedImages) {
+export function resolveChatPhotoReference(generatedImages, presentationMode = 'canonical') {
   if (!generatedImages) return null
-  for (const key of CHAT_PHOTO_REFERENCE_ORDER) {
+  const preferred = presentationMode === 'thirst' ? 'profileThirst' : 'profileCanonical'
+  const order = [preferred, ...CHAT_PHOTO_REFERENCE_ORDER]
+  for (const key of order) {
     const v = generatedImages[key]
     if (v) return v
   }

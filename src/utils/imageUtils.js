@@ -152,16 +152,28 @@ export async function compressSaveAssets(data) {
     })
   )
   let chat = data.chat
-  if (chat && Array.isArray(chat.ui)) {
-    chat = {
-      ...chat,
-      ui: await Promise.all(
-        chat.ui.map(async (msg) => {
-          if (!msg?.image) return msg
-          return { ...msg, image: await compressImageBase64(msg.image) }
-        })
-      ),
-    }
+  if (chat && typeof chat === 'object') {
+    const ui = Array.isArray(chat.ui)
+      ? await Promise.all(
+          chat.ui.map(async (msg) => {
+            if (!msg?.image) return msg
+            return { ...msg, image: await compressImageBase64(msg.image) }
+          }),
+        )
+      : chat.ui
+    const photos = Array.isArray(chat.photos)
+      ? await Promise.all(
+          chat.photos.map(async (photo) => {
+            if (!photo || typeof photo !== 'object') return photo
+            const image = photo.image ? await compressImageBase64(photo.image) : photo.image
+            const thumb = photo.thumb
+              ? await compressImageBase64(photo.thumb, { maxEdge: 256, quality: 0.7 })
+              : photo.thumb
+            return { ...photo, image, thumb }
+          }),
+        )
+      : chat.photos
+    chat = { ...chat, ui, photos }
   }
   return { ...data, generatedImages: images, wardrobe, ...(chat ? { chat } : {}) }
 }

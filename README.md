@@ -1,6 +1,6 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.6.2** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character.
+**v1.7.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character.
 
 ## Features
 
@@ -16,12 +16,12 @@ Identity is a **front T-pose lock** (3:4, underwear). Side, back, profile, and m
 
 - **Generate All** order: front T-pose lock → side → back → profile → mannequin
 - **Slots**: front lock, side, back, profile (1:1), mannequin (relaxed dress-up pose)
-- **Canonical vs Thirst**: Canonical uses Default Outfit on clothed shots (profile, wardrobe); Thirst uses Intimate Attire. Front / side / back / mannequin stay body-canon underwear shots
-- **Art style, lighting, and mood** modifiers, plus an Exclude box (Canonical also appends coverage negatives)
+- **Canonical + Thirst profiles**: generating Profile creates both looks at once. Switch them on the Profile card. Canonical uses Default Outfit; Thirst uses Intimate Attire. Body locks stay underwear shots
+- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 7). Seed is `0`–`2147483647` with a slider, number field, and randomize
 - **Wardrobe outfits** use the **mannequin** pose when one exists (T-pose lock only as fallback)
 - Native Gemini image models can take a reference; Imagen `predict` remains text-only (platform limit)
 
-Old library saves: a former 16:9 T-pose sheet is still treated as a leftover turnaround (not shown). Generate a new front lock, then side and back.
+Old library saves: a former 16:9 T-pose sheet is still treated as a leftover turnaround (not shown). Generate a new front lock, then side and back. A single stored profile is copied into both Canonical and Thirst slots.
 
 ### Image Analysis (Images → Stats)
 - **Upload any character image** via drag-and-drop or file picker
@@ -30,14 +30,19 @@ Old library saves: a former 16:9 T-pose sheet is still treated as a leftover tur
 - Applied photos are JPEG-compressed before they hit the store
 
 ### Chat
-- **Texting-first** thread (portrait + bubbles) once the character has a name
-- System prompt compiled from the sheet, **chat canon**, scene, heat, and who they think you are
+- Thread (portrait + bubbles) once the character has a name — **Online** or **In person**
+- System prompt compiled from the sheet, **chat canon**, scene, heat, wardrobe, clock, and who they think you are
+- **Timestamps** on messages so they know how long it has been between chats
 - **Scenes**: strangers, dating match, wrong number, tavern, briefing, interrogation, camp
 - **Heat**: slow-burn, flirty, filthy (Mature fields only when filthy)
 - Replies can use `[SPLIT]` / `[DELAY]` for multiple bubbles and a typing indicator
-- Photos only if you **ask** (pic / selfie / photo). The image is a candid phone shot, using profile or T-pose for **face identity**, not as the pose
+- Photos only if you **ask**. Shots stay in the character's **art style** (same prefs as Generation Studio), using profile or T-pose for **face identity**
+- **Photo album** of sent shots with thumbnails. They can resend, edit a recent photo plus their identity lock, or set one as their profile
+- They can wear a **wardrobe look** (`[WEAR]`) and stay in it; they will not change clothes or location in seconds
+- **In person:** `*asterisks*` and bare narration are remembered in their point of view; put spoken words in `"quotes"` so I/you are not flipped. **Online:** texts only — stars are emphasis, not stage directions, and they do not reply with `*actions*`
+- **Enter** sends; **Ctrl+Enter** or **Shift+Enter** inserts a newline
 - **Randomize All** starts a new character: empty thread, new save id, cleared art and backstory
-- Thread and settings save with that character
+- Thread, settings, album, and image prefs save with that character
 
 ### Narrative Engine
 - **Story bible**, not a full-sheet dump: one wound, one want, a scene instead of a CV
@@ -47,14 +52,16 @@ Old library saves: a former 16:9 T-pose sheet is still treated as a leftover tur
 - Genre defaults from species/origin until you change it
 
 ### Wardrobe System
-- Multiple saved outfits per character
+- Multiple **named outfits** per character
+- Each look is a **stackable line-item list** (style, type, garment, material, condition, color, wear location)
 - Outfit images generated on the **mannequin** pose (relaxed stance), not the T-pose lock
-- Respects Canonical / Thirst from Generation Studio
+- Same saved **seed** and style prefs as Generation Studio
+- Respects Canonical / Thirst from the Profile card
 
 ### Character Library
 - **IndexedDB** — everything stays in the browser
 - **Stable character id** so Save updates the same library row
-- **schemaVersion 4** saves: front/side/back lock slots, mannequin, presentation mode, chat canon, chat thread
+- **schemaVersion 7** saves: dual profile slots, image prefs (style / lighting / mood / exclude / seed), line-item wardrobe, chat album, presence, timestamps
 - **JPEG compression** on generated, wardrobe, analysis, and chat images
 - Grid and list views with search, sort, and filter
 - Bulk download (ZIP) and JSON import/export

@@ -293,6 +293,73 @@ export const WARDROBE_SLOT_CATALOGS = {
   condition: WARDROBE_CONDITIONS,
 }
 
+export const WARDROBE_ITEM_TYPES = [
+  { id: 'top', label: 'Top', slot: 'top' },
+  { id: 'bottom', label: 'Bottom', slot: 'bottom' },
+  { id: 'onePiece', label: 'One-piece', slot: 'onePiece' },
+  { id: 'outerwear', label: 'Outerwear', slot: 'outerwear' },
+  { id: 'footwear', label: 'Footwear', slot: 'footwear' },
+  { id: 'accessory', label: 'Accessory', slot: 'accessories' },
+]
+
+export const WARDROBE_LOCATIONS = [
+  opt('Head', '', 'worn on the head'),
+  opt('Hair', '', 'worn in the hair'),
+  opt('Face', '', 'worn on the face'),
+  opt('Both ears', '', 'worn on both ears'),
+  opt('Left ear', '', 'worn on the left ear'),
+  opt('Right ear', '', 'worn on the right ear'),
+  opt('Neck', '', 'worn on the neck'),
+  opt('Torso', '', 'worn on the torso'),
+  opt('Waist', '', 'worn at the waist'),
+  opt('Back', '', 'worn on the back'),
+  opt('Left arm', '', 'worn on the left arm'),
+  opt('Right arm', '', 'worn on the right arm'),
+  opt('Left wrist', '', 'worn on the left wrist'),
+  opt('Right wrist', '', 'worn on the right wrist'),
+  opt('Both wrists', '', 'worn on both wrists'),
+  opt('Left hand', '', 'worn on the left hand'),
+  opt('Right hand', '', 'worn on the right hand'),
+  opt('Both hands', '', 'worn on both hands'),
+  opt('Legs', '', 'worn on the legs'),
+  opt('Left ankle', '', 'worn on the left ankle'),
+  opt('Right ankle', '', 'worn on the right ankle'),
+  opt('Both ankles', '', 'worn on both ankles'),
+  opt('Left foot', '', 'worn on the left foot'),
+  opt('Right foot', '', 'worn on the right foot'),
+  opt('Both feet', '', 'worn on both feet'),
+  customOpt('A custom wear location you specify'),
+]
+
+WARDROBE_SLOT_CATALOGS.location = WARDROBE_LOCATIONS
+
+export function slotForItemType(type) {
+  return WARDROBE_ITEM_TYPES.find((t) => t.id === type)?.slot || 'top'
+}
+
+export function defaultLocationForType(type, garmentId = '') {
+  const g = String(garmentId || '').toLowerCase()
+  if (/watch|wrist/.test(g)) return 'Left wrist'
+  if (/hat|helmet|crown|tiara/.test(g)) return 'Head'
+  if (/glass|goggle/.test(g)) return 'Face'
+  if (/earring|piercing/.test(g)) return 'Both ears'
+  if (/scarf|bandana|dog tag/.test(g)) return 'Neck'
+  if (/backpack/.test(g)) return 'Back'
+  if (/ring|jewelry/.test(g)) return 'Both hands'
+  if (/belt|holster/.test(g)) return 'Waist'
+  if (/boot|shoe|sneaker|sandal|heel|barefoot/.test(g)) return 'Both feet'
+  switch (type) {
+    case 'bottom':
+      return 'Legs'
+    case 'footwear':
+      return 'Both feet'
+    case 'accessory':
+      return 'Neck'
+    default:
+      return 'Torso'
+  }
+}
+
 /**
  * @param {string} occupies
  * @param {string} id

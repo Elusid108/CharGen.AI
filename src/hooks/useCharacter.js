@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getDefaultCharacter, CHARACTER_SECTIONS, CHARACTER_SCHEMA_VERSION, emptyGeneratedImages } from '../data/schemas'
+import { getDefaultCharacter, CHARACTER_SECTIONS, CHARACTER_SCHEMA_VERSION, emptyGeneratedImages, emptyImagePrefs, normalizeImagePrefs } from '../data/schemas'
 import { randomRange, randomName } from '../data/randomPools'
 import { normalizeSelectOptions, pickWeightedFrom } from '../data/options'
 import {
@@ -23,6 +23,7 @@ import { fetchGeminiModels } from '../utils/models'
 import { generateCustomFields } from '../utils/api'
 import { useToastStore } from './useToast'
 import { emptyChatState, normalizeChatState } from '../utils/chatPrompt'
+import { migrateProfileSlots, syncActiveProfileAlias } from '../utils/imageGeneration'
 
 function buildFieldById() {
   const map = {}
@@ -303,6 +304,7 @@ function newCharacterSessionFields() {
     chatCanon: '',
     wardrobe: [],
     chat: emptyChatState(),
+    imagePrefs: emptyImagePrefs(),
   }
 }
 
@@ -319,11 +321,16 @@ export function migrateSavedCharacter(saved) {
       attributes: getDefaultCharacter(),
       chatCanon: '',
       chat: emptyChatState(),
+      imagePrefs: emptyImagePrefs({ randomizeSeed: false }),
     }
   }
 
   const version = Number(saved.schemaVersion) || 1
-  const images = { ...emptyGeneratedImagesState(), ...(saved.generatedImages || {}) }
+  const presentationMode = saved.presentationMode === 'thirst' ? 'thirst' : 'canonical'
+  const images = migrateProfileSlots(
+    { ...emptyGeneratedImagesState(), ...(saved.generatedImages || {}) },
+    presentationMode,
+  )
 
   if (version < 2 && images.tpose && !images.turnaround) {
     images.turnaround = images.tpose
@@ -353,12 +360,13 @@ export function migrateSavedCharacter(saved) {
   return {
     ...saved,
     generatedImages: images,
-    presentationMode: saved.presentationMode === 'thirst' ? 'thirst' : 'canonical',
+    presentationMode,
     schemaVersion: CHARACTER_SCHEMA_VERSION,
     attributes,
     wardrobe,
     chatCanon: typeof saved.chatCanon === 'string' ? saved.chatCanon : '',
     chat: normalizeChatState(saved.chat),
+    imagePrefs: normalizeImagePrefs(saved.imagePrefs),
   }
 }
 
@@ -373,6 +381,7 @@ export const useCharacterStore = create((set, get) => ({
   chatCanon: '',
   wardrobe: [],
   presentationMode: 'canonical',
+  imagePrefs: emptyImagePrefs(),
   chat: emptyChatState(),
 
   // API Key
@@ -480,13 +489,38 @@ export const useCharacterStore = create((set, get) => ({
 
   // Set generated image
   setGeneratedImage: (type, base64) => {
-    set(state => ({
-      generatedImages: { ...state.generatedImages, [type]: base64 }
-    }))
+    set((state) => {
+      const generatedImages = { ...state.generatedImages, [type]: base64 }
+      if (type === 'profile') {
+        const slot = state.presentationMode === 'thirst' ? 'profileThirst' : 'profileCanonical'
+        generatedImages[slot] = base64
+        const other = slot === 'profileThirst' ? 'profileCanonical' : 'profileThirst'
+        if (!generatedImages[other]) generatedImages[other] = base64
+      }
+      return {
+        generatedImages: syncActiveProfileAlias(generatedImages, state.presentationMode),
+      }
+    })
   },
 
   setPresentationMode: (mode) => {
-    set({ presentationMode: mode === 'thirst' ? 'thirst' : 'canonical' })
+    set((state) => {
+      const presentationMode = mode === 'thirst' ? 'thirst' : 'canonical'
+      return {
+        presentationMode,
+        generatedImages: syncActiveProfileAlias(state.generatedImages, presentationMode),
+      }
+    })
+  },
+
+  setImagePrefs: (prefs) => {
+    set({ imagePrefs: normalizeImagePrefs(prefs) })
+  },
+
+  patchImagePrefs: (patch) => {
+    set((state) => ({
+      imagePrefs: normalizeImagePrefs({ ...state.imagePrefs, ...(patch || {}) }),
+    }))
   },
 
   setCharacterId: (id) => {
@@ -527,7 +561,7 @@ export const useCharacterStore = create((set, get) => ({
     })
   },
 
-  replaceChatApiAndUi: ({ ui, api }) => {
+  replaceChatApiAndUi: ({ ui, api, photos }) => {
     set((state) => {
       const current = normalizeChatState(state.chat)
       return {
@@ -535,6 +569,7 @@ export const useCharacterStore = create((set, get) => ({
           ...current,
           ui: ui ?? current.ui,
           api: api ?? current.api,
+          photos: photos ?? current.photos,
         },
       }
     })
@@ -543,7 +578,7 @@ export const useCharacterStore = create((set, get) => ({
   clearChat: () => {
     set((state) => {
       const current = normalizeChatState(state.chat)
-      return { chat: { ...emptyChatState(), settings: current.settings } }
+      return { chat: { ...emptyChatState(), settings: current.settings, photos: current.photos } }
     })
   },
 
@@ -721,6 +756,7 @@ export const useCharacterStore = create((set, get) => ({
       chatCanon: migrated.chatCanon || '',
       wardrobe: migrated.wardrobe || [],
       presentationMode: migrated.presentationMode,
+      imagePrefs: migrated.imagePrefs || emptyImagePrefs({ randomizeSeed: false }),
       chat: migrated.chat,
       lockedFields,
     })
@@ -740,6 +776,7 @@ export const useCharacterStore = create((set, get) => ({
       chatCanon: state.chatCanon || '',
       wardrobe: [...state.wardrobe],
       presentationMode: state.presentationMode === 'thirst' ? 'thirst' : 'canonical',
+      imagePrefs: normalizeImagePrefs(state.imagePrefs),
       chat: normalizeChatState(state.chat),
       metadata: {
         tags: [],
@@ -760,6 +797,7 @@ export const useCharacterStore = create((set, get) => ({
       chatCanon: '',
       wardrobe: [],
       presentationMode: 'canonical',
+      imagePrefs: emptyImagePrefs(),
       chat: emptyChatState(),
       lockedFields: {},
     })

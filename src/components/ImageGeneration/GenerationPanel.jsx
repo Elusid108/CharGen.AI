@@ -18,12 +18,10 @@ import {
   ART_STYLES,
   LIGHTING_OPTIONS,
   MOOD_OPTIONS,
-  DEFAULT_ART_STYLE,
-  DEFAULT_LIGHTING,
-  DEFAULT_MOOD,
 } from '../../data/schemas'
 import { NARRATIVE_LENSES, guessGenreFromCharacter, pickNarrativeLens } from '../../utils/storyBible'
 import { downloadImage, base64ToDataUrl, compressImageBase64, inferImageMime, extensionForImageMime, aspectClassForRatio } from '../../utils/imageUtils'
+import SeedControl from '../shared/SeedControl'
 
 const IMAGE_TYPES = [
   { id: 'tpose', label: 'T-Pose Lock', icon: RotateCcw, ratio: '3:4', description: 'Front identity lock', lockBadge: true },
@@ -62,17 +60,19 @@ export default function GenerationPanel() {
   const setGeneratedImage = useCharacterStore(s => s.setGeneratedImage)
   const presentationMode = useCharacterStore(s => s.presentationMode)
   const setPresentationMode = useCharacterStore(s => s.setPresentationMode)
+  const imagePrefs = useCharacterStore(s => s.imagePrefs)
+  const patchImagePrefs = useCharacterStore(s => s.patchImagePrefs)
   const backstory = useCharacterStore(s => s.backstory)
   const setBackstory = useCharacterStore(s => s.setBackstory)
   const chatCanon = useCharacterStore(s => s.chatCanon)
   const setChatCanon = useCharacterStore(s => s.setChatCanon)
   const addToast = useToastStore(s => s.addToast)
 
-  // Image generation state
-  const [artStyle, setArtStyle] = useState(DEFAULT_ART_STYLE)
-  const [lighting, setLighting] = useState(DEFAULT_LIGHTING)
-  const [mood, setMood] = useState(DEFAULT_MOOD)
-  const [negativePrompt, setNegativePrompt] = useState('')
+  const artStyle = imagePrefs?.artStyle ?? ''
+  const lighting = imagePrefs?.lighting ?? ''
+  const mood = imagePrefs?.mood ?? ''
+  const negativePrompt = imagePrefs?.exclude ?? ''
+  const seed = imagePrefs?.seed ?? 0
   const [generatingTypes, setGeneratingTypes] = useState(new Set())
   const [isGeneratingAll, setIsGeneratingAll] = useState(false)
   const [fullscreenImage, setFullscreenImage] = useState(null)
@@ -109,11 +109,60 @@ export default function GenerationPanel() {
 
   /**
    * @param {string} imageType
-   * @param {{ batchFrontLock?: string | null, fromBatch?: boolean }} [options]
-   * @returns {Promise<string | null>} base64 on success, null on failure or missing API key
+   * @param {{
+   *   batchFrontLock?: string | null,
+   *   fromBatch?: boolean,
+   *   presentationMode?: 'canonical' | 'thirst',
+   *   persist?: boolean,
+   * }} [options]
+   * @returns {Promise<string | null>}
    */
-  const handleGenerateImage = async (imageType, options = {}) => {
-    const { batchFrontLock = null, fromBatch = false } = options
+  const generateSingleShot = async (imageType, options = {}) => {
+    const {
+      batchFrontLock = null,
+      presentationMode: modeOverride,
+      persist = true,
+    } = options
+    const mode = modeOverride === 'thirst' ? 'thirst' : (modeOverride === 'canonical' ? 'canonical' : presentationMode)
+    const prefs = useCharacterStore.getState().imagePrefs || {}
+    const typeConfig = IMAGE_TYPES.find(t => t.id === imageType)
+    const canRef = modelSupportsReferenceImages(availableImageModels, selectedImageModel || DEFAULT_IMAGE_MODEL)
+
+    let referenceImageBase64 = null
+    let referenceView = null
+    if (imageType !== 'tpose' && canRef) {
+      const latestImages = useCharacterStore.getState().generatedImages
+      const resolved = resolveViewReference(latestImages, imageType, batchFrontLock)
+      referenceImageBase64 = resolved.image
+      referenceView = resolved.source
+    }
+
+    const extraNegative = mergeNegativePrompt(imageType, mode, prefs.exclude || '', {
+      dorsalExtras: characterHasDorsalExtras(character),
+    })
+    const prompt = buildImagePrompt(character, imageType, {
+      artStyle: prefs.artStyle,
+      lighting: prefs.lighting,
+      mood: prefs.mood,
+      presentationMode: mode,
+      hasReferenceImage: !!referenceImageBase64,
+      referenceView,
+      extraNegative,
+    })
+
+    const rawBase64 = await callGenerateImage(apiKey, prompt, imageModelOptions({
+      aspectRatio: typeConfig.ratio,
+      negativePrompt: extraNegative,
+      seed: prefs.seed,
+      ...(referenceImageBase64 ? { referenceImageBase64 } : {}),
+    }))
+    const base64 = await compressImageBase64(rawBase64)
+    if (persist) setGeneratedImage(imageType, base64)
+    return base64
+  }
+
+  const handleGenerateProfilePair = async (options = {}) => {
+    const { fromBatch = false } = options
     if (!apiKey) {
       addToast('Please set your API key in Settings first.', 'warning')
       return null
@@ -123,41 +172,55 @@ export default function GenerationPanel() {
       return null
     }
 
-    setGeneratingTypes(prev => new Set([...prev, imageType]))
+    setGeneratingTypes((prev) => new Set([...prev, 'profile']))
     try {
-      const typeConfig = IMAGE_TYPES.find(t => t.id === imageType)
-      const canRef = modelSupportsReferenceImages(availableImageModels, selectedImageModel || DEFAULT_IMAGE_MODEL)
-
-      let referenceImageBase64 = null
-      let referenceView = null
-      if (imageType !== 'tpose' && canRef) {
-        const latestImages = useCharacterStore.getState().generatedImages
-        const resolved = resolveViewReference(latestImages, imageType, batchFrontLock)
-        referenceImageBase64 = resolved.image
-        referenceView = resolved.source
+      const results = await Promise.allSettled([
+        generateSingleShot('profile', { ...options, presentationMode: 'canonical', persist: false }),
+        generateSingleShot('profile', { ...options, presentationMode: 'thirst', persist: false }),
+      ])
+      const canonical = results[0].status === 'fulfilled' ? results[0].value : null
+      const thirst = results[1].status === 'fulfilled' ? results[1].value : null
+      if (results[0].status === 'rejected') {
+        addToast(`Canonical profile: ${results[0].reason?.message || results[0].reason}`, 'error', 5000)
       }
-
-      const extraNegative = mergeNegativePrompt(imageType, presentationMode, negativePrompt, {
-        dorsalExtras: characterHasDorsalExtras(character),
+      if (results[1].status === 'rejected') {
+        addToast(`Thirst profile: ${results[1].reason?.message || results[1].reason}`, 'error', 5000)
+      }
+      if (canonical) setGeneratedImage('profileCanonical', canonical)
+      if (thirst) setGeneratedImage('profileThirst', thirst)
+      if (canonical || thirst) addToast('Profile (Canonical + Thirst) generated!', 'success')
+      const mode = useCharacterStore.getState().presentationMode
+      return mode === 'thirst' ? thirst : canonical
+    } finally {
+      setGeneratingTypes((prev) => {
+        const next = new Set(prev)
+        next.delete('profile')
+        return next
       })
-      const prompt = buildImagePrompt(character, imageType, {
-        artStyle,
-        lighting,
-        mood,
-        presentationMode,
-        hasReferenceImage: !!referenceImageBase64,
-        referenceView,
-        extraNegative,
-      })
+    }
+  }
 
-      const rawBase64 = await callGenerateImage(apiKey, prompt, imageModelOptions({
-        aspectRatio: typeConfig.ratio,
-        negativePrompt: extraNegative,
-        ...(referenceImageBase64 ? { referenceImageBase64 } : {}),
-      }))
+  /**
+   * @param {string} imageType
+   * @param {{ batchFrontLock?: string | null, fromBatch?: boolean }} [options]
+   * @returns {Promise<string | null>}
+   */
+  const handleGenerateImage = async (imageType, options = {}) => {
+    const { fromBatch = false } = options
+    if (imageType === 'profile') return handleGenerateProfilePair(options)
+    if (!apiKey) {
+      addToast('Please set your API key in Settings first.', 'warning')
+      return null
+    }
+    if (!fromBatch && !useCharacterStore.getState().generatedImages?.tpose) {
+      addToast('Use Generate All first so the T-pose lock is created.', 'warning')
+      return null
+    }
 
-      const base64 = await compressImageBase64(rawBase64)
-      setGeneratedImage(imageType, base64)
+    setGeneratingTypes((prev) => new Set([...prev, imageType]))
+    try {
+      const typeConfig = IMAGE_TYPES.find((t) => t.id === imageType)
+      const base64 = await generateSingleShot(imageType, options)
       addToast(`${typeConfig.label} generated successfully!`, 'success')
       if (imageType === 'tpose' && !fromBatch) {
         addToast('Identity lock updated. Regenerate other images to match.', 'info')
@@ -167,7 +230,7 @@ export default function GenerationPanel() {
       addToast(`${imageType}: ${e.message}`, 'error', 5000)
       return null
     } finally {
-      setGeneratingTypes(prev => {
+      setGeneratingTypes((prev) => {
         const next = new Set(prev)
         next.delete(imageType)
         return next
@@ -276,22 +339,96 @@ export default function GenerationPanel() {
       {/* Character Sheet Summary */}
       <CharacterSummary character={character} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-6 items-start">
-        {/* Generation Controls */}
-        <div className="glass-panel p-6">
-          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-6 items-stretch">
+        <div className="glass-panel p-6 flex flex-col h-full min-h-0">
+          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2 shrink-0">
             <Camera size={18} className="text-purple-400" />
             Image Generation Controls
           </h3>
 
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="section-heading mb-1 block">Presentation</label>
-              <div className="flex rounded-lg border border-slate-700 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="section-heading mb-1 block">Art Style</label>
+                <select
+                  value={artStyle}
+                  onChange={(e) => patchImagePrefs({ artStyle: e.target.value })}
+                  className="input-field w-full text-xs"
+                >
+                  {ART_STYLES.map((s, i) => <option key={i} value={s.value}>{s.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="section-heading mb-1 block">Lighting</label>
+                <select
+                  value={lighting}
+                  onChange={(e) => patchImagePrefs({ lighting: e.target.value })}
+                  className="input-field w-full text-xs"
+                >
+                  {LIGHTING_OPTIONS.map((l, i) => <option key={i} value={l.value}>{l.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="section-heading mb-1 block">Mood</label>
+                <select
+                  value={mood}
+                  onChange={(e) => patchImagePrefs({ mood: e.target.value })}
+                  className="input-field w-full text-xs"
+                >
+                  {MOOD_OPTIONS.map((m, i) => <option key={i} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="section-heading mb-1 block">Exclude</label>
+                <input
+                  value={negativePrompt}
+                  onChange={(e) => patchImagePrefs({ exclude: e.target.value })}
+                  placeholder="Blurry, low quality..."
+                  className="input-field w-full text-xs"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {presentationMode === 'thirst'
+                ? 'Thirst profile uses Intimate Attire from the Mature sheet and full body detail. '
+                : 'Canonical profile uses Default Outfit (Identity) and keeps garments closed. '}
+              Switch Canonical / Thirst on the Profile card. Generate Profile creates both. First pass is Generate All (T-pose lock first). Wardrobe uses the mannequin pose. Style, lighting, mood, exclude, and seed save with the character.
+            </p>
+          </div>
+
+          <div className="mt-auto pt-4 space-y-3 shrink-0">
+            <SeedControl seed={seed} onChange={(next) => patchImagePrefs({ seed: next })} />
+            <button
+              type="button"
+              onClick={handleGenerateAll}
+              disabled={isGeneratingAll || isAnyGenerating}
+              className="btn-generate w-full flex items-center justify-center gap-2"
+            >
+              {isGeneratingAll || isAnyGenerating ? (
+                <><div className="loader" /> Generating {generatingTypes.size} image{generatingTypes.size !== 1 ? 's' : ''}...</>
+              ) : (
+                <><Layers size={18} /> Generate All Images</>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {IMAGE_TYPES.filter((t) => t.id === 'profile').map((type) => (
+          <ImageCard
+            key={type.id}
+            type={type}
+            image={generatedImages.profile}
+            isGenerating={generatingTypes.has(type.id)}
+            canGenerate={canRegenIndividual}
+            onGenerate={() => handleGenerateImage(type.id)}
+            onDownload={() => handleDownload('profile')}
+            onFullscreen={() => setFullscreenImage(generatedImages.profile)}
+            headerExtra={(
+              <div className="flex rounded-lg border border-slate-700 overflow-hidden ml-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setPresentationMode('canonical')}
-                  className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  className={`px-2 py-1 text-[10px] font-medium transition-colors ${
                     presentationMode !== 'thirst'
                       ? 'bg-blue-600/30 text-blue-200'
                       : 'bg-slate-900 text-slate-500 hover:text-slate-300'
@@ -302,7 +439,7 @@ export default function GenerationPanel() {
                 <button
                   type="button"
                   onClick={() => setPresentationMode('thirst')}
-                  className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  className={`px-2 py-1 text-[10px] font-medium transition-colors ${
                     presentationMode === 'thirst'
                       ? 'bg-amber-600/30 text-amber-200'
                       : 'bg-slate-900 text-slate-500 hover:text-slate-300'
@@ -311,67 +448,7 @@ export default function GenerationPanel() {
                   Thirst
                 </button>
               </div>
-            </div>
-            <div>
-              <label className="section-heading mb-1 block">Art Style</label>
-              <select value={artStyle} onChange={e => setArtStyle(e.target.value)} className="input-field w-full text-xs">
-                {ART_STYLES.map((s, i) => <option key={i} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="section-heading mb-1 block">Lighting</label>
-              <select value={lighting} onChange={e => setLighting(e.target.value)} className="input-field w-full text-xs">
-                {LIGHTING_OPTIONS.map((l, i) => <option key={i} value={l.value}>{l.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="section-heading mb-1 block">Mood</label>
-              <select value={mood} onChange={e => setMood(e.target.value)} className="input-field w-full text-xs">
-                {MOOD_OPTIONS.map((m, i) => <option key={i} value={m.value}>{m.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="mb-4">
-            <label className="section-heading mb-1 block">Exclude</label>
-            <input
-              value={negativePrompt}
-              onChange={e => setNegativePrompt(e.target.value)}
-              placeholder="Blurry, low quality..."
-              className="input-field w-full text-xs"
-            />
-            <p className="text-[11px] text-slate-500 mt-1.5">
-              {presentationMode === 'thirst'
-                ? 'Thirst mode uses Intimate Attire from the Mature sheet and full body detail. '
-                : 'Canonical mode uses Default Outfit (Identity) and keeps garments closed. '}
-              First pass is Generate All (T-pose lock first). After that you can regenerate individual shots. Wardrobe uses the mannequin pose.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGenerateAll}
-            disabled={isGeneratingAll || isAnyGenerating}
-            className="btn-generate w-full flex items-center justify-center gap-2"
-          >
-            {isGeneratingAll || isAnyGenerating ? (
-              <><div className="loader" /> Generating {generatingTypes.size} image{generatingTypes.size !== 1 ? 's' : ''}...</>
-            ) : (
-              <><Layers size={18} /> Generate All Images</>
             )}
-          </button>
-        </div>
-
-        {IMAGE_TYPES.filter((t) => t.id === 'profile').map((type) => (
-          <ImageCard
-            key={type.id}
-            type={type}
-            image={generatedImages[type.id]}
-            isGenerating={generatingTypes.has(type.id)}
-            canGenerate={canRegenIndividual}
-            onGenerate={() => handleGenerateImage(type.id)}
-            onDownload={() => handleDownload(type.id)}
-            onFullscreen={() => setFullscreenImage(generatedImages[type.id])}
           />
         ))}
       </div>
@@ -565,12 +642,12 @@ function CharacterSummary({ character }) {
   )
 }
 
-function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullscreen, lockBadge, canGenerate = true }) {
+function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullscreen, lockBadge, canGenerate = true, headerExtra = null }) {
   const aspectClass = aspectClassForRatio(type.ratio)
   const generateBlocked = !canGenerate && !isGenerating
   return (
-    <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
-      <div className="p-3 flex justify-between items-center border-b border-slate-700/50">
+    <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden h-full flex flex-col">
+      <div className="p-3 flex justify-between items-center border-b border-slate-700/50 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <type.icon size={16} className="text-purple-400 shrink-0" />
           <span className="text-sm font-bold text-white truncate">{type.label}</span>
@@ -579,6 +656,7 @@ function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullsc
               Identity lock
             </span>
           )}
+          {headerExtra}
         </div>
         <span className="text-[10px] text-slate-500 uppercase shrink-0 ml-2">{type.description}</span>
       </div>
@@ -626,7 +704,7 @@ function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullsc
         )}
       </div>
 
-      <div className="p-3">
+      <div className="p-3 mt-auto">
         <button
           onClick={onGenerate}
           disabled={isGenerating || generateBlocked}

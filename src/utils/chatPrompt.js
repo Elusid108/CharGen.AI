@@ -35,6 +35,11 @@ export function emptyChatSettings() {
     heat: 'flirty',
     opener: 'strangers',
     userPersona: { name: '', notes: '', addressAs: '' },
+    presence: 'online',
+    currentOutfitId: '',
+    lastOutfitChangeAt: 0,
+    place: '',
+    lastPlaceChangeAt: 0,
   }
 }
 
@@ -43,6 +48,7 @@ export function emptyChatState() {
     ui: [],
     api: [],
     settings: emptyChatSettings(),
+    photos: [],
   }
 }
 
@@ -61,13 +67,20 @@ export function normalizeChatState(raw) {
   const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : {}
   const heat = CHAT_HEATS.some((h) => h.id === settings.heat) ? settings.heat : 'flirty'
   const opener = CHAT_OPENERS.some((o) => o.id === settings.opener) ? settings.opener : 'strangers'
+  const presence = settings.presence === 'inperson' ? 'inperson' : 'online'
   return {
     ui: Array.isArray(raw.ui) ? raw.ui : [],
     api: Array.isArray(raw.api) ? raw.api : [],
+    photos: Array.isArray(raw.photos) ? raw.photos.filter((p) => p && typeof p === 'object') : [],
     settings: {
       heat,
       opener,
       userPersona: normalizeUserPersona(settings.userPersona),
+      presence,
+      currentOutfitId: typeof settings.currentOutfitId === 'string' ? settings.currentOutfitId : '',
+      lastOutfitChangeAt: Number(settings.lastOutfitChangeAt) || 0,
+      place: typeof settings.place === 'string' ? settings.place : '',
+      lastPlaceChangeAt: Number(settings.lastPlaceChangeAt) || 0,
     },
   }
 }
@@ -150,6 +163,22 @@ function competencyLine(c) {
   return line('What they can actually talk about', parts.join(' '))
 }
 
+function buildMediumBlock(presence) {
+  if (presence === 'inperson') {
+    return `[MEDIUM: IN PERSON]
+You are together in the same place, not only texting.
+Spoken words stay outside asterisks. Physical actions and thoughts go inside *asterisks*.
+Stay first-person. Do not narrate their body unless they wrote that action.
+Do not occupy the spot they just claimed. Do not perform their last physical action.
+Do not teleport. Do not change clothes or location in seconds.`
+  }
+  return `[MEDIUM: TEXTING]
+This is a messaging thread, not a scene and not a voice call.
+Reply with texts only. Do not use *asterisks* for actions, thoughts, or stage directions. Do not narrate bodies, rooms, or who is standing where.
+If they type *stars*, that is just emphasis in the message, not a physical action.
+Do not write "as an AI". Do not name MBTI, Enneagram, alignment, or OCEAN labels.`
+}
+
 /**
  * @param {{
  *   character: Record<string, unknown>,
@@ -157,6 +186,9 @@ function competencyLine(c) {
  *   backstory?: string,
  *   settings?: ReturnType<typeof emptyChatSettings>,
  *   visualLine?: string,
+ *   situation?: string,
+ *   wardrobeBlock?: string,
+ *   photoBlock?: string,
  * }} args
  */
 export function composeChatSystemPrompt({
@@ -165,6 +197,9 @@ export function composeChatSystemPrompt({
   backstory = '',
   settings,
   visualLine = '',
+  situation = '',
+  wardrobeBlock = '',
+  photoBlock = '',
 }) {
   const c = character || {}
   const s = normalizeChatState({ settings }).settings
@@ -239,20 +274,40 @@ These are behavioral instructions, not labels to dump. Do not say MBTI, Enneagra
 ${behavior.map((b) => `- ${b}`).join('\n')}`
     : ''
 
-  return `You are engaging in a first-person TEXT MESSAGE roleplay.
+  const scenePovBlock = s.presence === 'inperson'
+    ? `[ACTIONS]
+Text inside *asterisks* is physical action or thought, not spoken dialogue.
+Their incoming turn is already rewritten to YOUR point of view. In that block, you/your = them and I/me/my = you. Quoted "I" is still them speaking.
+You may use *asterisks* the same way.
+
+[POV]
+Do not take their location, pose, or last physical action.
+If they placed you at X and themselves at Y, stay there unless you physically move.
+Rewritten "You smirk" is them smirking. Quoted "I" is still them.
+
+Example of what you will see (already rewritten):
+walk into the garage, my back to you, bent over working on a car
+You smirk and tap the vending machine
+"Hey stranger"
+Correct: you stay at the car. They are at the vending machine.
+Wrong: you walk to the machine and look at their back against the car.
+`
+    : ''
+
+  return `You are engaging in a first-person roleplay.
 YOU ARE NOT AN AI ASSISTANT. YOU ARE ${name}.
-Never break character. Never acknowledge you are an AI. Type like a person on a phone.
+Never break character. Never acknowledge you are an AI.
 
-[MEDIUM: TEXTING]
-This is a messaging thread, not a voice call and not a tabletop narration.
-Do not write stage directions as *actions* unless your character would actually type that.
-Do not write "as an AI". Do not name MBTI, Enneagram, alignment, or OCEAN labels.
+${buildMediumBlock(s.presence)}
 
+${scenePovBlock}
 ${buildOpenerBlock(s.opener)}
 
 ${buildUserPersonaBlock(s.userPersona)}
 
 ${buildHeatBlock(s.heat)}
+
+${situation || ''}
 
 [IDENTITY]
 ${identity || '- (sparse sheet)'}
@@ -274,6 +329,10 @@ ${adult}
 
 ${look}
 
+${wardrobeBlock || ''}
+
+${photoBlock || ''}
+
 [MULTI-MESSAGE]
 To send separate bubbles, use the exact tag [SPLIT] between them.
 To pause before the next bubble, use [DELAY: seconds] (integer).
@@ -281,9 +340,15 @@ Example: "who is this[SPLIT][DELAY: 4]wrong number?"
 ${splitHint}
 
 [PHOTOS]
-Do NOT send photos by default. Almost every reply is text only. Do not offer a selfie. Do not include [SEND_PIC] on greetings, small talk, flirting, or "what are you doing."
-Include [SEND_PIC: ...] only if they explicitly asked for a photo, pic, selfie, or picture in a recent message (or clearly said yes after you asked if they wanted one).
-Never more than one [SEND_PIC] in a reply.
-When allowed, write: [SEND_PIC: specific candid phone photo that fits THIS moment — setting, clothes, expression, crop]
-Describe a real texted snapshot (bathroom mirror, arm's-length selfie, messy bedroom, street at night). Never a T-pose, studio backdrop, or character sheet. Match your established face and body.`
+Do NOT send photos by default. Almost every reply is text only. Do not offer a selfie. Do not include [SEND_PIC] on greetings, small talk, or "what are you doing."
+Include [SEND_PIC: ...] only if they asked for a photo, pic, selfie, picture, or a look in a wardrobe outfit.
+Never more than one new [SEND_PIC] in a reply.
+When allowed: [SEND_PIC: specific candid photo that fits THIS moment — setting, clothes, expression, crop]
+To resend a remembered photo: [RESEND_PIC: p3]
+To modify a remembered photo: [EDIT_PIC: p3 | jacket off, same place]
+To change your profile picture to a remembered shot: [SET_PROFILE: p3]
+To generate a new profile portrait: [SET_PROFILE: new | head and shoulders, current look]
+To put on a wardrobe look: [WEAR: w1]
+To update where you are: [PLACE: the garage]
+Never a T-pose, studio backdrop, or character sheet. Match your established face, body, and art style.`
 }

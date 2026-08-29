@@ -258,21 +258,35 @@ function parseReferenceImageForGemini(referenceImageBase64) {
 
 // --- Image Generation (Imagen predict or Gemini generateContent) ---
 
+function collectReferenceImages(options) {
+  const list = []
+  if (Array.isArray(options.referenceImagesBase64)) {
+    for (const img of options.referenceImagesBase64) {
+      if (img) list.push(img)
+    }
+  }
+  if (options.referenceImageBase64) list.push(options.referenceImageBase64)
+  return list
+}
+
 export async function generateImage(apiKey, prompt, options = {}) {
   const {
     aspectRatio = '1:1',
     negativePrompt = '',
     modelId = DEFAULT_IMAGE_MODEL,
     imageEndpoint = 'predict',
-    referenceImageBase64 = null,
+    seed = null,
   } = options
+
+  const seedValue = seed == null || seed === '' ? null : Number(seed)
+  const seedInt = Number.isFinite(seedValue) ? Math.max(0, Math.min(2147483647, Math.round(seedValue))) : null
 
   if (imageEndpoint === 'generateContent') {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`
 
     const parts = []
-    if (referenceImageBase64) {
-      const ref = parseReferenceImageForGemini(referenceImageBase64)
+    for (const img of collectReferenceImages(options)) {
+      const ref = parseReferenceImageForGemini(img)
       if (ref) {
         parts.push({
           inlineData: {
@@ -289,6 +303,7 @@ export async function generateImage(apiKey, prompt, options = {}) {
       generationConfig: {
         responseModalities: ['IMAGE'],
         imageConfig: { aspectRatio },
+        ...(seedInt != null ? { seed: seedInt } : {}),
       },
     }
 
@@ -315,6 +330,7 @@ export async function generateImage(apiKey, prompt, options = {}) {
       sampleCount: 1,
       aspectRatio,
       ...(negativePrompt ? { negativePrompt } : {}),
+      ...(seedInt != null ? { seed: seedInt } : {}),
     }
   }
 
@@ -604,7 +620,7 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
   const physical = buildDetailedPhysicalPrompt(character, {
     clothingMode,
     bodyDetail,
-    outfitOverride: imageType === 'outfit' ? outfitOverride : null,
+    outfitOverride: (imageType === 'outfit' || imageType === 'profile') ? outfitOverride : null,
   })
   parts.push(`A highly detailed character concept art. ${physical}`)
 
@@ -697,41 +713,67 @@ export function buildImagePrompt(character, imageType = 'profile', styleModifier
 }
 
 const CHAT_PHOTO_IDENTITY_INSTRUCTION =
-  'The attached image is ONLY who this person is (face, hair, skin, body type). ' +
-  'Ignore its pose, crop, lighting, and background completely. ' +
+  'The first attached image is ONLY who this person is (face, hair, skin, body type). ' +
+  'Match that reference\'s rendering style, medium, finish, and stylization exactly. ' +
+  'Ignore its pose, crop, and background. ' +
   'Do not copy a T-pose, arms stretched to the sides, grey seamless backdrop, or character-sheet composition.'
 
+const CHAT_PHOTO_EDIT_INSTRUCTION =
+  'A later attached image is a previous photo of the same person. ' +
+  'Keep their identity and the same art style. Apply the requested change. Do not turn it into a character sheet.'
+
 /**
- * Phone-snapshot prompt for chat [SEND_PIC] — not a studio full-body shot.
- * Scene description is first so it is not buried under the identity lock.
+ * Candid-moment prompt for chat photos — style-locked to the identity reference.
  * @param {Record<string, unknown>} character
  * @param {string} picDescription
  * @param {{
  *   presentationMode?: 'canonical' | 'thirst',
  *   hasReferenceImage?: boolean,
+ *   hasPriorPhoto?: boolean,
  *   extraNegative?: string,
+ *   artStyle?: string,
+ *   lighting?: string,
+ *   mood?: string,
+ *   outfitOverride?: string | null,
  * }} [styleModifiers]
  */
 export function buildChatPhotoPrompt(character, picDescription, styleModifiers = {}) {
   const {
     presentationMode = 'canonical',
     hasReferenceImage = false,
+    hasPriorPhoto = false,
     extraNegative = '',
+    artStyle = '',
+    lighting = '',
+    mood = '',
+    outfitOverride = null,
   } = styleModifiers
   const scene = String(picDescription || '').trim()
-    || 'a casual candid phone photo of this person in the current moment'
+    || 'a casual candid photo of this person in the current moment'
   const clothingMode = presentationMode === 'thirst' ? 'thirst' : 'canonical'
   const bodyDetail = clothingMode === 'thirst' ? 'full' : 'silhouette'
-  const physical = buildDetailedPhysicalPrompt(character, { clothingMode, bodyDetail })
+  const physical = buildDetailedPhysicalPrompt(character, {
+    clothingMode,
+    bodyDetail,
+    outfitOverride,
+  })
 
   const parts = [
-    'A candid smartphone photo someone just texted — real phone camera, slight compression, not concept art, not a character reference sheet.',
+    'A candid in-the-moment photo. Match the attached identity reference\'s rendering style, medium, finish, and stylization exactly — same look as that image, not a different medium.',
     `What the photo shows: ${scene}`,
-    'Handheld framing: typical selfie, bathroom/bedroom mirror selfie, or a friend-took-this shot. Head and shoulders or torso. A real indoor or outdoor place that fits the description. Imperfect lighting. Not a studio. Not a seamless grey or black backdrop.',
+    'Candid framing: selfie, mirror shot, friend-took-this, or an in-person snapshot. Head and shoulders or torso. A real place that fits the description. Not a T-pose, mannequin, or character sheet. Not a seamless studio backdrop unless the scene is a studio.',
   ]
   if (hasReferenceImage) parts.push(CHAT_PHOTO_IDENTITY_INSTRUCTION)
+  if (hasPriorPhoto) parts.push(CHAT_PHOTO_EDIT_INSTRUCTION)
   parts.push(physical)
   parts.push('Same person as the reference. Completely different pose, camera, and setting than any T-pose or mannequin shot.')
+
+  let styleStr = 'Keep the same stylization as the reference.'
+  if (artStyle) styleStr += ` ${artStyle}.`
+  if (lighting) styleStr += ` ${lighting}.`
+  if (mood) styleStr += ` ${mood}.`
+  parts.push(styleStr)
+
   const avoid = String(extraNegative ?? '').trim()
   if (avoid) parts.push(`Avoid the following: ${avoid}.`)
   return parts.join(' ')
