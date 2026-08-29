@@ -424,7 +424,7 @@ export default function GenerationPanel() {
             onDownload={() => handleDownload('profile')}
             onFullscreen={() => setFullscreenImage(generatedImages.profile)}
             headerExtra={(
-              <div className="flex rounded-lg border border-slate-700 overflow-hidden ml-2 shrink-0">
+              <div className="flex rounded-lg border border-slate-700 overflow-hidden shrink-0">
                 <button
                   type="button"
                   onClick={() => setPresentationMode('canonical')}
@@ -647,18 +647,20 @@ function ImageCard({ type, image, isGenerating, onGenerate, onDownload, onFullsc
   const generateBlocked = !canGenerate && !isGenerating
   return (
     <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden h-full flex flex-col">
-      <div className="p-3 flex justify-between items-center border-b border-slate-700/50 shrink-0">
+      <div className="p-3 flex flex-col gap-1.5 border-b border-slate-700/50 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <type.icon size={16} className="text-purple-400 shrink-0" />
-          <span className="text-sm font-bold text-white truncate">{type.label}</span>
-          {lockBadge && (
-            <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/60 shrink-0">
-              Identity lock
-            </span>
-          )}
-          {headerExtra}
+          <div className="flex items-center gap-2 min-w-0">
+            <type.icon size={16} className="text-purple-400 shrink-0" />
+            <span className="text-sm font-bold text-white truncate">{type.label}</span>
+            {lockBadge && (
+              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/60 shrink-0">
+                Identity lock
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] text-slate-500 uppercase shrink-0 ml-auto text-right">{type.description}</span>
         </div>
-        <span className="text-[10px] text-slate-500 uppercase shrink-0 ml-2">{type.description}</span>
+        {headerExtra}
       </div>
 
       <div
