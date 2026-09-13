@@ -180,18 +180,31 @@ export function extractArtifactUrls(output) {
   const out = output && typeof output === 'object' ? output : {}
   const modelUrl = out.model_url || out.pbr_model || out.model || out.base_model || null
   const previewUrl = out.rendered_image_url || out.rendered_image || null
-  return { modelUrl, previewUrl }
+  const modelUrls = out.model_urls && typeof out.model_urls === 'object' ? out.model_urls : null
+  return { modelUrl, previewUrl, modelUrls }
+}
+
+function isLocalHost() {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname
+  return host === 'localhost' || host === '127.0.0.1'
+}
+
+export function artifactFetchUrl(url) {
+  if (!url) return url
+  if (isLocalHost()) return `/tripo-artifact?url=${encodeURIComponent(url)}`
+  return url
 }
 
 /**
- * Artifact CDNs often omit CORS. Returns a Blob or null if the browser cannot read the bytes.
+ * Artifact CDNs often omit CORS. On localhost this goes through the Vite proxy.
  * @param {string} url
  * @returns {Promise<Blob | null>}
  */
 export async function fetchArtifactBlob(url) {
   if (!url) return null
   try {
-    const res = await fetch(url, { mode: 'cors', credentials: 'omit' })
+    const res = await fetch(artifactFetchUrl(url), { mode: 'cors', credentials: 'omit' })
     if (!res.ok) return null
     return await res.blob()
   } catch {
@@ -215,7 +228,14 @@ export function saveBlobFile(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(href), 2000)
 }
 
-export function generationPayload({ engineId, texture, extra = {} }) {
+export function generationPayload({
+  engineId,
+  texture,
+  textureQuality = 'standard',
+  geometryQuality = 'standard',
+  faceLimit,
+  extra = {},
+}) {
   const isP1 = engineId === 'p1'
   const payload = {
     model: isP1 ? 'P1-20260311' : 'v3.1-20260211',
@@ -224,8 +244,16 @@ export function generationPayload({ engineId, texture, extra = {} }) {
     ...extra,
   }
   if (isP1) {
-    payload.face_limit = 5000
+    const n = Number(faceLimit)
+    payload.face_limit = Number.isFinite(n) ? Math.min(20000, Math.max(1000, Math.round(n))) : 5000
     payload.auto_size = true
+  } else {
+    if (texture && textureQuality && textureQuality !== 'standard') {
+      payload.texture_quality = textureQuality
+    }
+    if (geometryQuality && geometryQuality !== 'standard') {
+      payload.geometry_quality = geometryQuality
+    }
   }
   return payload
 }

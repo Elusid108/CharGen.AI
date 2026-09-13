@@ -1,6 +1,6 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.8.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D.
+**v1.9.1** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D.
 
 ## Features
 
@@ -17,7 +17,7 @@ Identity is a **front T-pose lock** (3:4, underwear). Side, back, profile, and m
 - **Generate All** order: front T-pose lock → side → back → profile → mannequin
 - **Slots**: front lock, side, back, profile (1:1), mannequin (relaxed dress-up pose)
 - **Canonical + Thirst profiles**: generating Profile creates both looks at once. Switch them on the Profile card. Canonical uses Default Outfit; Thirst uses Intimate Attire. Body locks stay underwear shots
-- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 8). Seed is `0`–`2147483647` with a slider, number field, and randomize
+- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 9). Seed is `0`–`2147483647` with a slider, number field, and randomize
 - **Wardrobe outfits** use the **mannequin** pose when one exists (T-pose lock only as fallback)
 - Native Gemini image models can take a reference; Imagen `predict` remains text-only (platform limit)
 
@@ -28,12 +28,13 @@ Tripo jobs **never** run from Generate All Images or from adding a wardrobe look
 
 - **Generation Studio**: turnaround lock (front T-pose plus side/back) and mannequin
 - **Wardrobe**: a separate 3D button on each look that already has a 2D image
-- **Confirm dialog** with engine (H3 quality or P1 game topology), texture on/off, and a credit estimate vs your Tripo balance
-- **Optional** Mixamo rig, STL (print), and FBX (engines) — billed only if you confirm those buttons
+- **Confirm dialog** with engine (H3 or P1), texture on/off, H3 texture/geometry quality, P1 face limit, and a live credit estimate
+- After each job a **viewer popup** opens with mouse orbit and touch rotate/pinch. Meshes stay in IndexedDB until you press Download
+- **History** per slot: the latest mesh is current; regenerating archives the previous one so you can restore or delete it
+- **Optional** Mixamo rig, idle/walk/run retarget (10 credits per clip), STL preview in the viewer, and FBX — billed only if you confirm
 - Failed jobs return frozen credits. Regenerating a mesh you dislike costs full price
-- Meshes and stills save in IndexedDB when the browser can download them; if Tripo’s file CDN blocks CORS, a download tab opens (links expire in a few minutes)
 
-Local `npm run dev` / `npm run preview` proxy Tripo through Vite (`/tripo-api`) because Tripo’s OpenAPI does not allow browser CORS. The GitHub Pages build has no proxy, so 3D will not reach Tripo from the hosted site.
+Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and file CDN (`/tripo-artifact`) because Tripo does not allow browser CORS. The GitHub Pages build has no proxy, so 3D will not reach Tripo from the hosted site.
 
 ### Image Analysis (Images → Stats)
 - **Upload any character image** via drag-and-drop or file picker
@@ -74,8 +75,8 @@ Local `npm run dev` / `npm run preview` proxy Tripo through Vite (`/tripo-api`) 
 ### Character Library
 - **IndexedDB** — everything stays in the browser
 - **Stable character id** so Save updates the same library row
-- **schemaVersion 8** saves: dual profile slots, image prefs, line-item wardrobe, chat album, presence, timestamps, and **3D model metadata** (`generatedModels`)
-- **Models** object store holds GLB / preview / export blobs when the browser can save them
+- **schemaVersion 9** saves: dual profile slots, image prefs, line-item wardrobe, chat album, presence, timestamps, and **3D current + archive history** (`generatedModels`)
+- **Models** object store holds GLB / preview / animation / STL / FBX blobs in the browser; Download is optional
 - **JPEG compression** on generated, wardrobe, analysis, and chat images
 - Grid and list views with search, sort, and filter
 - Bulk download (ZIP) and JSON import/export
@@ -92,7 +93,7 @@ Local `npm run dev` / `npm run preview` proxy Tripo through Vite (`/tripo-api`) 
 
 ### Run locally (Windows)
 
-Double-click `launch.bat` in the repo root. It installs dependencies if needed and opens `http://localhost:5173/CharGen.AI/`.
+Double-click `launch.bat` in the repo root. It closes leftover CharGen.AI Vite servers (including ones that hopped to other ports), installs dependencies if needed, and opens `http://localhost:5173/CharGen.AI/`.
 
 ### Run locally (any platform)
 
@@ -135,7 +136,9 @@ Image, chat, and library features work on the hosted site. **Tripo 3D needs the 
 - **IndexedDB** (local characters, images, chat, 3D blobs, Google + Tripo keys)
 - **Google Gemini** for text, image analysis, chat, and native image (`generateContent`)
 - **Google Imagen** when selected (`predict`, no reference image)
-- **Tripo OpenAPI v3** for deliberate 3D generation (local Vite `/tripo-api` proxy)
+- **Tripo OpenAPI v3** for deliberate 3D generation (local Vite `/tripo-api` and `/tripo-artifact` proxies)
+- **Three.js** for in-app STL orbit preview
+- **model-viewer** for GLB orbit / touch / animation playback
 - **JSZip** for bulk downloads
 - **Lucide React** for icons
 

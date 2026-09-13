@@ -1,6 +1,11 @@
 import React from 'react'
 import { X } from 'lucide-react'
-import { TRIPO_ENGINES, formatCredits } from '../../utils/tripoCredits'
+import {
+  TRIPO_ENGINES,
+  TEXTURE_QUALITY_OPTIONS,
+  GEOMETRY_QUALITY_OPTIONS,
+  formatCredits,
+} from '../../utils/tripoCredits'
 
 export default function TripoConfirmModal({
   open,
@@ -11,6 +16,12 @@ export default function TripoConfirmModal({
   onEngineChange,
   texture = true,
   onTextureChange,
+  textureQuality = 'standard',
+  onTextureQualityChange,
+  geometryQuality = 'standard',
+  onGeometryQualityChange,
+  faceLimit = 5000,
+  onFaceLimitChange,
   estimate,
   balance,
   busy = false,
@@ -22,10 +33,11 @@ export default function TripoConfirmModal({
 
   const available = balance?.balance
   const short = available != null && estimate != null && available < estimate
+  const isP1 = engine === 'p1'
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md w-full shadow-2xl">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-start gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-white">{title}</h3>
@@ -72,6 +84,68 @@ export default function TripoConfirmModal({
               />
               Include texture / PBR (needed for games and digital use; off is cheaper print geometry)
             </label>
+
+            {!isP1 && texture && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Texture quality</p>
+                <div className="space-y-1">
+                  {TEXTURE_QUALITY_OPTIONS.map((opt) => (
+                    <label key={opt.id} className="flex items-center gap-2 text-xs text-slate-300">
+                      <input
+                        type="radio"
+                        name="tripo-texq"
+                        checked={textureQuality === opt.id}
+                        onChange={() => onTextureQualityChange?.(opt.id)}
+                        disabled={busy}
+                      />
+                      {opt.label}
+                      {opt.extra ? <span className="text-slate-500">(+{opt.extra})</span> : null}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!isP1 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Geometry quality</p>
+                <div className="space-y-1">
+                  {GEOMETRY_QUALITY_OPTIONS.map((opt) => (
+                    <label key={opt.id} className="flex items-center gap-2 text-xs text-slate-300">
+                      <input
+                        type="radio"
+                        name="tripo-geoq"
+                        checked={geometryQuality === opt.id}
+                        onChange={() => onGeometryQualityChange?.(opt.id)}
+                        disabled={busy}
+                      />
+                      {opt.label}
+                      {opt.extra ? <span className="text-slate-500">(+{opt.extra})</span> : null}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {isP1 && (
+              <div>
+                <label className="flex justify-between text-xs text-slate-400 mb-1">
+                  <span>Face limit</span>
+                  <span className="font-mono text-slate-200">{faceLimit}</span>
+                </label>
+                <input
+                  type="range"
+                  min={1000}
+                  max={20000}
+                  step={500}
+                  value={faceLimit}
+                  onChange={(e) => onFaceLimitChange?.(Number(e.target.value))}
+                  disabled={busy}
+                  className="w-full"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">Lower is cheaper on the GPU later; ~5000 is a good game-mesh default.</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -88,7 +162,7 @@ export default function TripoConfirmModal({
             </span>
           </div>
           <p className="text-[11px] text-slate-500 pt-1">
-            Failed jobs return frozen credits. Retrying a mesh you do not like costs full price again. There is no cheaper retry SKU.
+            Failed jobs return frozen credits. Regenerating a mesh you do not like costs full price again.
           </p>
         </div>
 

@@ -3,7 +3,7 @@
  * Handles character storage, wardrobe, generated content, and 3D model blobs
  */
 
-import { modelBlobId, MODEL_FILE_KINDS } from './tripoModels'
+import { modelBlobId, legacyModelBlobId, MODEL_FILE_KINDS } from './tripoModels'
 
 const DB_NAME = 'CharGenAI_DB'
 const DB_VERSION = 2
@@ -121,14 +121,15 @@ export async function deleteMultipleCharacters(ids) {
 
 // --- 3D model blobs ---
 
-export async function putModelBlob({ characterId, slot, outfitId, kind, blob, mime, filename }) {
+export async function putModelBlob({ characterId, slot, outfitId, kind, blob, mime, filename, assetId }) {
   const db = await openDB()
   const record = {
-    id: modelBlobId(characterId, slot, outfitId, kind),
+    id: modelBlobId(characterId, slot, outfitId, kind, assetId),
     characterId,
     slot,
     outfitId: outfitId || null,
     kind,
+    assetId: assetId || null,
     blob,
     mime: mime || blob?.type || 'application/octet-stream',
     filename: filename || kind,
@@ -139,10 +140,13 @@ export async function putModelBlob({ characterId, slot, outfitId, kind, blob, mi
   return record.id
 }
 
-export async function getModelBlob(characterId, slot, outfitId, kind) {
+export async function getModelBlob(characterId, slot, outfitId, kind, assetId) {
   const db = await openDB()
   const tx = db.transaction([STORES.MODELS], 'readonly')
-  return idbReq(tx.objectStore(STORES.MODELS).get(modelBlobId(characterId, slot, outfitId, kind)))
+  const store = tx.objectStore(STORES.MODELS)
+  const row = await idbReq(store.get(modelBlobId(characterId, slot, outfitId, kind, assetId)))
+  if (row) return row
+  return idbReq(store.get(legacyModelBlobId(characterId, slot, outfitId, kind)))
 }
 
 export async function getModelBlobsForCharacter(characterId) {
@@ -153,15 +157,29 @@ export async function getModelBlobsForCharacter(characterId) {
   return Array.isArray(rows) ? rows : []
 }
 
-export async function deleteModelBlob(characterId, slot, outfitId, kind) {
+export async function deleteModelBlob(characterId, slot, outfitId, kind, assetId) {
   const db = await openDB()
   const tx = db.transaction([STORES.MODELS], 'readwrite')
-  await idbReq(tx.objectStore(STORES.MODELS).delete(modelBlobId(characterId, slot, outfitId, kind)))
+  const store = tx.objectStore(STORES.MODELS)
+  await idbReq(store.delete(modelBlobId(characterId, slot, outfitId, kind, assetId)))
+  await idbReq(store.delete(legacyModelBlobId(characterId, slot, outfitId, kind)))
+}
+
+export async function deleteAssetModels(characterId, slot, outfitId, assetId) {
+  if (!characterId || !assetId) return
+  await Promise.all(MODEL_FILE_KINDS.map((kind) => deleteModelBlob(characterId, slot, outfitId, kind, assetId)))
 }
 
 export async function deleteSlotModels(characterId, slot, outfitId) {
   if (!characterId) return
-  await Promise.all(MODEL_FILE_KINDS.map((kind) => deleteModelBlob(characterId, slot, outfitId, kind)))
+  const rows = await getModelBlobsForCharacter(characterId)
+  const prefix = `${characterId}::${slot === 'outfit' ? `outfit_${outfitId}` : slot}::`
+  const matches = rows.filter((row) => String(row.id || '').startsWith(prefix))
+  if (!matches.length) return
+  const db = await openDB()
+  const tx = db.transaction([STORES.MODELS], 'readwrite')
+  const store = tx.objectStore(STORES.MODELS)
+  await Promise.all(matches.map((row) => idbReq(store.delete(row.id))))
 }
 
 export async function deleteCharacterModels(characterId) {

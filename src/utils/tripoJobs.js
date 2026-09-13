@@ -4,7 +4,7 @@
 
 import { useCharacterStore } from '../hooks/useCharacter'
 import { useToastStore } from '../hooks/useToast'
-import { putModelBlob, getModelBlob, saveCharacter } from './db'
+import { deleteAssetModels, getModelBlob, putModelBlob, saveCharacter } from './db'
 import {
   createTripoTask,
   extractArtifactUrls,
@@ -18,15 +18,20 @@ import {
   waitForTripoTask,
 } from './tripo'
 import {
+  archiveCurrentAndSet,
   base64ToImageFile,
   emptyModelRecord,
   filenameForSlot,
+  findAssetRecord,
   findInFlightJobs,
   getModelRecord,
   lockViewsReady,
   patchModelRecord,
+  removeAssetRecord,
+  restoreArchivedRecord,
 } from './tripoModels'
-import { RIG_CREDITS } from './tripoCredits'
+import { LOCOMOTION_CLIPS, RETARGET_CREDITS, RIG_CREDITS } from './tripoCredits'
+import { generateId } from './imageUtils'
 
 function toast(message, type, duration) {
   useToastStore.getState().addToast(message, type, duration)
@@ -63,6 +68,10 @@ function applyRecord(slot, outfitId, patch) {
   state.setGeneratedModels(next)
 }
 
+function currentAssetId(slot, outfitId) {
+  return getModelRecord(store().generatedModels, slot, outfitId)?.id || null
+}
+
 async function persistCharacterMeta() {
   const data = store().getSaveData()
   await saveCharacter(data)
@@ -85,17 +94,15 @@ export async function refreshTripoBalanceSilent() {
   }
 }
 
-async function captureArtifact({ characterId, slot, outfitId, kind, url, filename, mime }) {
+async function captureArtifact({ characterId, slot, outfitId, kind, url, filename, mime, assetId }) {
   const blob = await fetchArtifactBlob(url)
-  if (!blob) {
-    if (url) openArtifactInTab(url)
-    return { saved: false, corsBlocked: true }
-  }
+  if (!blob) return { saved: false, corsBlocked: true }
   await putModelBlob({
     characterId,
     slot,
     outfitId,
     kind,
+    assetId,
     blob,
     mime: mime || blob.type,
     filename,
@@ -103,7 +110,10 @@ async function captureArtifact({ characterId, slot, outfitId, kind, url, filenam
   return { saved: true, corsBlocked: false }
 }
 
-async function finishMeshTask({ apiKey, slot, outfitId, taskId, engine, texture, source }) {
+async function finishMeshTask({
+  apiKey, slot, outfitId, taskId, engine, texture, source,
+  textureQuality, geometryQuality, faceLimit,
+}) {
   const task = await waitForTripoTask(apiKey, taskId, {
     onProgress: (t) => {
       applyRecord(slot, outfitId, {
@@ -115,21 +125,23 @@ async function finishMeshTask({ apiKey, slot, outfitId, taskId, engine, texture,
 
   const { modelUrl, previewUrl } = extractArtifactUrls(task.output)
   const characterId = store().ensureCharacterId()
+  const record = getModelRecord(store().generatedModels, slot, outfitId)
+  const assetId = record?.id
   const who = characterLabel()
   const look = outfitId ? outfitName(outfitId) : ''
-  const files = { ...(getModelRecord(store().generatedModels, slot, outfitId)?.files || emptyModelRecord().files) }
+  const files = { ...(record?.files || emptyModelRecord().files) }
   let corsBlocked = false
   const remoteUrls = {}
 
   if (previewUrl) {
-    const previewName = filenameForSlot(who, slot, look, 'preview')
     const preview = await captureArtifact({
       characterId,
       slot,
       outfitId,
+      assetId,
       kind: 'preview',
       url: previewUrl,
-      filename: previewName,
+      filename: filenameForSlot(who, slot, look, 'preview'),
       mime: 'image/jpeg',
     })
     files.preview = preview.saved
@@ -140,14 +152,14 @@ async function finishMeshTask({ apiKey, slot, outfitId, taskId, engine, texture,
   }
 
   if (modelUrl) {
-    const glbName = filenameForSlot(who, slot, look, 'glb')
     const glb = await captureArtifact({
       characterId,
       slot,
       outfitId,
+      assetId,
       kind: 'glb',
       url: modelUrl,
-      filename: glbName,
+      filename: filenameForSlot(who, slot, look, 'glb'),
       mime: 'model/gltf-binary',
     })
     files.glb = glb.saved
@@ -163,6 +175,9 @@ async function finishMeshTask({ apiKey, slot, outfitId, taskId, engine, texture,
     taskId,
     engine,
     texture,
+    textureQuality,
+    geometryQuality,
+    faceLimit: engine === 'p1' ? faceLimit : null,
     source,
     lastError: null,
     creditsConsumed: task.credits_consumed ?? null,
@@ -178,17 +193,20 @@ async function finishMeshTask({ apiKey, slot, outfitId, taskId, engine, texture,
   const spent = task.credits_consumed != null ? ` Used ${task.credits_consumed} credits.` : ''
   if (corsBlocked) {
     toast(
-      `3D model ready.${spent} The file opened in a new tab because the browser blocked saving it locally. Download it now — the link expires in a few minutes.`,
+      `3D model ready.${spent} It could not be saved in the browser. Use Download if you need a copy — the Tripo link expires in a few minutes.`,
       'warning',
       8000,
     )
   } else {
-    toast(`3D model saved.${spent}`, 'success', 5000)
+    toast(`3D model saved in the app.${spent}`, 'success', 5000)
   }
   return task
 }
 
-async function runTaskFromId({ slot, outfitId, taskId, engine, texture, source }) {
+async function runTaskFromId({
+  slot, outfitId, taskId, engine, texture, source,
+  textureQuality, geometryQuality, faceLimit,
+}) {
   const apiKey = requireTripoKey()
   store().setTripoBusy(true, `${slot}:${outfitId || ''}`)
   try {
@@ -201,7 +219,11 @@ async function runTaskFromId({ slot, outfitId, taskId, engine, texture, source }
       lastError: null,
     })
     await persistCharacterMeta()
-    await finishMeshTask({ apiKey, slot, outfitId, taskId, engine, texture, source })
+    await finishMeshTask({
+      apiKey, slot, outfitId, taskId, engine, texture, source,
+      textureQuality, geometryQuality, faceLimit,
+    })
+    return 'mesh'
   } catch (e) {
     applyRecord(slot, outfitId, {
       status: 'failed',
@@ -226,9 +248,17 @@ async function runTaskFromId({ slot, outfitId, taskId, engine, texture, source }
 }
 
 /**
- * @param {{ slot: 'lock' | 'mannequin' | 'outfit', outfitId?: string, engine: 'h3' | 'p1', texture: boolean }} opts
+ * @param {{ slot: 'lock' | 'mannequin' | 'outfit', outfitId?: string, engine: 'h3' | 'p1', texture: boolean, textureQuality?: string, geometryQuality?: string, faceLimit?: number }} opts
  */
-export async function startMeshGeneration({ slot, outfitId = null, engine, texture }) {
+export async function startMeshGeneration({
+  slot,
+  outfitId = null,
+  engine,
+  texture,
+  textureQuality = 'standard',
+  geometryQuality = 'standard',
+  faceLimit = 5000,
+}) {
   assertNotBusy()
   const apiKey = requireTripoKey()
   const images = store().generatedImages
@@ -250,20 +280,25 @@ export async function startMeshGeneration({ slot, outfitId = null, engine, textu
   }
 
   const source = slot === 'lock' ? 'multiview' : 'image'
-  store().setTripoBusy(true, `${slot}:${outfitId || ''}`)
-  applyRecord(slot, outfitId, emptyModelRecord({
+  const nextRecord = emptyModelRecord({
+    id: generateId(),
     slot,
     outfitId: slot === 'outfit' ? outfitId : null,
     source,
     engine,
     texture,
+    textureQuality,
+    geometryQuality,
+    faceLimit: engine === 'p1' ? faceLimit : null,
     status: 'uploading',
     progress: 5,
-  }))
+  })
+  store().setGeneratedModels(archiveCurrentAndSet(store().generatedModels, slot, outfitId, nextRecord))
+  store().setTripoBusy(true, `${slot}:${outfitId || ''}`)
 
   try {
     await persistCharacterMeta()
-    const payload = generationPayload({ engineId: engine, texture })
+    const payload = generationPayload({ engineId: engine, texture, textureQuality, geometryQuality, faceLimit })
     if (slot === 'lock') {
       const tokens = [{ front: await uploadTripoFile(apiKey, base64ToImageFile(views.front, 'front')) }]
       if (views.left) tokens.push({ left: await uploadTripoFile(apiKey, base64ToImageFile(views.left, 'left')) })
@@ -282,7 +317,11 @@ export async function startMeshGeneration({ slot, outfitId = null, engine, textu
     const taskId = await createTripoTask(apiKey, path, payload)
     applyRecord(slot, outfitId, { taskId, status: 'queued', progress: 15 })
     await persistCharacterMeta()
-    await finishMeshTask({ apiKey, slot, outfitId, taskId, engine, texture, source })
+    await finishMeshTask({
+      apiKey, slot, outfitId, taskId, engine, texture, source,
+      textureQuality, geometryQuality, faceLimit,
+    })
+    return 'mesh'
   } catch (e) {
     applyRecord(slot, outfitId, {
       status: 'failed',
@@ -306,8 +345,8 @@ export async function startMeshGeneration({ slot, outfitId = null, engine, textu
   }
 }
 
-export async function retryMeshGeneration({ slot, outfitId = null, engine, texture }) {
-  return startMeshGeneration({ slot, outfitId, engine, texture })
+export async function retryMeshGeneration(opts) {
+  return startMeshGeneration(opts)
 }
 
 export async function resumeInFlightTripoJobs() {
@@ -322,6 +361,9 @@ export async function resumeInFlightTripoJobs() {
       taskId: job.record.taskId,
       engine: job.record.engine || 'h3',
       texture: job.record.texture !== false,
+      textureQuality: job.record.textureQuality || 'standard',
+      geometryQuality: job.record.geometryQuality || 'standard',
+      faceLimit: job.record.faceLimit || 5000,
       source: job.record.source || (job.slot === 'lock' ? 'multiview' : 'image'),
     })
   } catch {
@@ -336,6 +378,7 @@ export async function startRigJob({ slot, outfitId = null }) {
   if (!record?.taskId || record.status !== 'success') {
     throw new TripoApiError('Generate a 3D mesh first.')
   }
+  const assetId = record.id
 
   store().setTripoBusy(true, `rig:${slot}`)
   applyRecord(slot, outfitId, { status: 'running', progress: 5, lastError: null })
@@ -353,7 +396,7 @@ export async function startRigJob({ slot, outfitId = null }) {
         'warning',
         8000,
       )
-      return
+      return null
     }
 
     const rigModel = rigType === 'biped' ? 'v1.0-20240301' : 'v2.5-20260210'
@@ -377,14 +420,14 @@ export async function startRigJob({ slot, outfitId = null }) {
     let corsBlocked = !!record.corsBlocked
 
     if (modelUrl) {
-      const name = filenameForSlot(characterLabel(), slot, outfitId ? outfitName(outfitId) : '', 'riggedGlb')
       const saved = await captureArtifact({
         characterId,
         slot,
         outfitId,
+        assetId,
         kind: 'riggedGlb',
         url: modelUrl,
-        filename: name,
+        filename: filenameForSlot(characterLabel(), slot, outfitId ? outfitName(outfitId) : '', 'riggedGlb'),
         mime: 'model/gltf-binary',
       })
       files.riggedGlb = saved.saved
@@ -406,10 +449,96 @@ export async function startRigJob({ slot, outfitId = null }) {
     await persistCharacterMeta()
     await refreshTripoBalanceSilent()
     toast(`Mixamo rig ready (${rigType}).${rigTask.credits_consumed != null ? ` Used ${rigTask.credits_consumed} credits.` : ''}`, 'success', 5000)
+    return 'rigged'
   } catch (e) {
     applyRecord(slot, outfitId, { status: 'success', lastError: e?.message || 'Rig failed' })
     await persistCharacterMeta()
     toast(e?.message || 'Rig failed', 'error', 6000)
+    throw e
+  } finally {
+    store().setTripoBusy(false, null)
+  }
+}
+
+/**
+ * @param {{ slot: string, outfitId?: string, clips?: string[] }} opts
+ */
+export async function startRetargetJob({ slot, outfitId = null, clips = ['idle', 'walk', 'run'] }) {
+  assertNotBusy()
+  const apiKey = requireTripoKey()
+  const record = getModelRecord(store().generatedModels, slot, outfitId)
+  if (!record?.rigTaskId) {
+    throw new TripoApiError('Rig the mesh before adding animations.')
+  }
+  const wanted = LOCOMOTION_CLIPS.filter((clip) => clips.includes(clip.id))
+  if (!wanted.length) throw new TripoApiError('Pick at least one animation.')
+
+  const assetId = record.id
+  store().setTripoBusy(true, `retarget:${slot}`)
+  applyRecord(slot, outfitId, { status: 'running', progress: 5, lastError: null })
+  try {
+    const characterId = store().ensureCharacterId()
+    const files = { ...(record.files || {}) }
+    const remoteUrls = { ...(record.remoteUrls || {}) }
+    let corsBlocked = !!record.corsBlocked
+    let spent = 0
+    let done = 0
+
+    for (const clip of wanted) {
+      const taskId = await createTripoTask(apiKey, '/animations/retarget', {
+        input: record.rigTaskId,
+        animation: clip.preset,
+        out_format: 'glb',
+        bake_animation: true,
+        export_with_geometry: true,
+        animate_in_place: true,
+      })
+      const task = await waitForTripoTask(apiKey, taskId, {
+        onProgress: (t) => {
+          const slice = (Number(t.progress) || 0) / wanted.length
+          applyRecord(slot, outfitId, { progress: Math.round((done * 100 + slice) / wanted.length) })
+        },
+      })
+      spent += Number(task.credits_consumed) || RETARGET_CREDITS
+      const { modelUrl, modelUrls } = extractArtifactUrls(task.output)
+      const url = modelUrl || (modelUrls && (modelUrls[clip.preset] || Object.values(modelUrls)[0]))
+      if (url) {
+        const saved = await captureArtifact({
+          characterId,
+          slot,
+          outfitId,
+          assetId,
+          kind: clip.kind,
+          url,
+          filename: filenameForSlot(characterLabel(), slot, outfitId ? outfitName(outfitId) : '', clip.kind),
+          mime: 'model/gltf-binary',
+        })
+        files[clip.kind] = saved.saved
+        if (!saved.saved) {
+          corsBlocked = true
+          remoteUrls[clip.kind] = url
+        }
+      }
+      done += 1
+      applyRecord(slot, outfitId, { files, remoteUrls, progress: Math.round((done / wanted.length) * 100) })
+    }
+
+    applyRecord(slot, outfitId, {
+      status: 'success',
+      progress: 100,
+      files,
+      corsBlocked,
+      remoteUrls,
+      creditsConsumed: (Number(record.creditsConsumed) || 0) + spent,
+    })
+    await persistCharacterMeta()
+    await refreshTripoBalanceSilent()
+    toast(`Animations saved (${wanted.map((c) => c.label).join(', ')}). Used ${spent} credits.`, 'success', 5000)
+    return 'animations'
+  } catch (e) {
+    applyRecord(slot, outfitId, { status: 'success', lastError: e?.message || 'Animation retarget failed' })
+    await persistCharacterMeta()
+    toast(e?.message || 'Animation retarget failed', 'error', 6000)
     throw e
   } finally {
     store().setTripoBusy(false, null)
@@ -427,6 +556,7 @@ export async function startConvertJob({ slot, outfitId = null, format }) {
   if (!sourceTaskId || record.status === 'failed' || record.status === 'idle') {
     throw new TripoApiError('Generate a 3D mesh first.')
   }
+  const assetId = record.id
 
   const kind = format === 'STL' ? 'stl' : 'fbx'
   const payload = format === 'STL'
@@ -464,16 +594,15 @@ export async function startConvertJob({ slot, outfitId = null, format }) {
     let corsBlocked = !!record.corsBlocked
 
     if (modelUrl) {
-      const name = filenameForSlot(characterLabel(), slot, outfitId ? outfitName(outfitId) : '', kind)
-      const mime = format === 'STL' ? 'model/stl' : 'application/octet-stream'
       const saved = await captureArtifact({
         characterId,
         slot,
         outfitId,
+        assetId,
         kind,
         url: modelUrl,
-        filename: name,
-        mime,
+        filename: filenameForSlot(characterLabel(), slot, outfitId ? outfitName(outfitId) : '', kind),
+        mime: format === 'STL' ? 'model/stl' : 'application/octet-stream',
       })
       files[kind] = saved.saved
       if (!saved.saved) {
@@ -492,10 +621,11 @@ export async function startConvertJob({ slot, outfitId = null, format }) {
     await persistCharacterMeta()
     await refreshTripoBalanceSilent()
     toast(
-      `${format} export ready.${task.credits_consumed != null ? ` Used ${task.credits_consumed} credits.` : ''}`,
+      `${format} saved in the app.${task.credits_consumed != null ? ` Used ${task.credits_consumed} credits.` : ''}`,
       'success',
       5000,
     )
+    return format === 'STL' ? 'stl' : 'mesh'
   } catch (e) {
     applyRecord(slot, outfitId, { status: 'success', lastError: e?.message || `${format} convert failed` })
     await persistCharacterMeta()
@@ -506,13 +636,31 @@ export async function startConvertJob({ slot, outfitId = null, format }) {
   }
 }
 
-export async function downloadSlotFile({ slot, outfitId = null, kind }) {
+export async function restoreModelVersion({ slot, outfitId = null, assetId }) {
+  const next = restoreArchivedRecord(store().generatedModels, slot, outfitId, assetId)
+  store().setGeneratedModels(next)
+  await persistCharacterMeta()
+  toast('Restored that 3D version as the current mesh.', 'success')
+}
+
+export async function deleteModelVersion({ slot, outfitId = null, assetId }) {
   const characterId = store().characterId
-  const record = getModelRecord(store().generatedModels, slot, outfitId)
+  store().setGeneratedModels(removeAssetRecord(store().generatedModels, slot, outfitId, assetId))
+  if (characterId) await deleteAssetModels(characterId, slot, outfitId, assetId)
+  await persistCharacterMeta()
+  toast('Removed that 3D version from history.', 'info')
+}
+
+export async function downloadSlotFile({ slot, outfitId = null, kind, assetId }) {
+  const characterId = store().characterId
+  const id = assetId || currentAssetId(slot, outfitId)
+  const record = id
+    ? findAssetRecord(store().generatedModels, slot, outfitId, id) || getModelRecord(store().generatedModels, slot, outfitId)
+    : getModelRecord(store().generatedModels, slot, outfitId)
   const name = filenameForSlot(characterLabel(), slot, outfitId ? outfitName(outfitId) : '', kind)
 
   if (characterId) {
-    const row = await getModelBlob(characterId, slot, outfitId, kind)
+    const row = await getModelBlob(characterId, slot, outfitId, kind, id)
     if (row?.blob) {
       saveBlobFile(row.blob, row.filename || name)
       return
@@ -529,23 +677,26 @@ export async function downloadSlotFile({ slot, outfitId = null, kind }) {
   toast('No file stored for that export yet.', 'warning')
 }
 
-export async function getSlotPreviewUrl(slot, outfitId = null) {
+export async function getAssetBlobUrl({ slot, outfitId = null, kind, assetId }) {
   const characterId = store().characterId
+  const id = assetId || currentAssetId(slot, outfitId)
   if (characterId) {
-    const row = await getModelBlob(characterId, slot, outfitId, 'preview')
+    const row = await getModelBlob(characterId, slot, outfitId, kind, id)
     if (row?.blob) return URL.createObjectURL(row.blob)
   }
-  const record = getModelRecord(store().generatedModels, slot, outfitId)
-  if (record?.previewUrl) return record.previewUrl
-  return null
+  const record = id
+    ? findAssetRecord(store().generatedModels, slot, outfitId, id)
+    : getModelRecord(store().generatedModels, slot, outfitId)
+  if (kind === 'preview' && record?.previewUrl) return record.previewUrl
+  return record?.remoteUrls?.[kind] || null
 }
 
-export async function getSlotGlbObjectUrl(slot, outfitId = null) {
-  const characterId = store().characterId
-  if (!characterId) return null
-  const rigged = await getModelBlob(characterId, slot, outfitId, 'riggedGlb')
-  if (rigged?.blob) return URL.createObjectURL(rigged.blob)
-  const glb = await getModelBlob(characterId, slot, outfitId, 'glb')
-  if (glb?.blob) return URL.createObjectURL(glb.blob)
-  return null
+export async function getSlotPreviewUrl(slot, outfitId = null, assetId) {
+  return getAssetBlobUrl({ slot, outfitId, kind: 'preview', assetId })
+}
+
+export async function getSlotGlbObjectUrl(slot, outfitId = null, assetId) {
+  const rigged = await getAssetBlobUrl({ slot, outfitId, kind: 'riggedGlb', assetId })
+  if (rigged) return rigged
+  return getAssetBlobUrl({ slot, outfitId, kind: 'glb', assetId })
 }

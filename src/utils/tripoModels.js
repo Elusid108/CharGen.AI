@@ -1,22 +1,31 @@
-import { inferImageMime, extensionForImageMime, stripBase64Prefix } from './imageUtils'
+import { inferImageMime, extensionForImageMime, stripBase64Prefix, generateId } from './imageUtils'
 
-export const MODEL_FILE_KINDS = ['glb', 'riggedGlb', 'stl', 'fbx', 'preview']
+export const MODEL_FILE_KINDS = ['glb', 'riggedGlb', 'stl', 'fbx', 'preview', 'animIdle', 'animWalk', 'animRun']
+export const LEGACY_ASSET_ID = 'legacy'
+
+export function emptySlotState() {
+  return { current: null, archive: [] }
+}
 
 export function emptyGeneratedModels() {
   return {
-    lock: null,
-    mannequin: null,
+    lock: emptySlotState(),
+    mannequin: emptySlotState(),
     outfits: {},
   }
 }
 
 export function emptyModelRecord(partial = {}) {
   return {
+    id: partial.id || generateId(),
     slot: 'lock',
     outfitId: null,
     source: 'multiview',
     engine: 'h3',
     texture: true,
+    textureQuality: 'standard',
+    geometryQuality: 'standard',
+    faceLimit: null,
     taskId: null,
     rigTaskId: null,
     convertTasks: {},
@@ -33,6 +42,9 @@ export function emptyModelRecord(partial = {}) {
       stl: false,
       fbx: false,
       preview: false,
+      animIdle: false,
+      animWalk: false,
+      animRun: false,
     },
     createdAt: Date.now(),
     completedAt: null,
@@ -49,19 +61,40 @@ function normalizeFiles(files) {
     stl: !!files.stl,
     fbx: !!files.fbx,
     preview: !!files.preview,
+    animIdle: !!files.animIdle,
+    animWalk: !!files.animWalk,
+    animRun: !!files.animRun,
   }
+}
+
+function looksLikeSlotState(raw) {
+  return !!(raw && typeof raw === 'object' && ('current' in raw || Array.isArray(raw.archive)) && !raw.status && !raw.files)
+}
+
+function looksLikeRecord(raw) {
+  return !!(raw && typeof raw === 'object' && (raw.status || raw.taskId || raw.files || raw.engine || raw.slot))
 }
 
 export function normalizeModelRecord(raw) {
   if (!raw || typeof raw !== 'object') return null
+  if (looksLikeSlotState(raw)) return null
   const slot = raw.slot === 'mannequin' || raw.slot === 'outfit' ? raw.slot : 'lock'
+  const textureQuality = raw.textureQuality === 'detailed' || raw.textureQuality === 'extreme'
+    ? raw.textureQuality
+    : 'standard'
+  const geometryQuality = raw.geometryQuality === 'detailed' ? 'detailed' : 'standard'
+  const faceLimit = raw.faceLimit == null ? null : Number(raw.faceLimit)
   return emptyModelRecord({
     ...raw,
+    id: raw.id || LEGACY_ASSET_ID,
     slot,
     outfitId: raw.outfitId || null,
     source: raw.source === 'image' ? 'image' : 'multiview',
     engine: raw.engine === 'p1' ? 'p1' : 'h3',
     texture: raw.texture !== false,
+    textureQuality,
+    geometryQuality,
+    faceLimit: Number.isFinite(faceLimit) ? faceLimit : null,
     taskId: raw.taskId || null,
     rigTaskId: raw.rigTaskId || null,
     convertTasks: raw.convertTasks && typeof raw.convertTasks === 'object' ? { ...raw.convertTasks } : {},
@@ -78,39 +111,70 @@ export function normalizeModelRecord(raw) {
   })
 }
 
+export function normalizeSlotState(raw) {
+  if (!raw) return emptySlotState()
+  if (looksLikeSlotState(raw)) {
+    const archive = Array.isArray(raw.archive)
+      ? raw.archive.map(normalizeModelRecord).filter(Boolean)
+      : []
+    return {
+      current: normalizeModelRecord(raw.current),
+      archive,
+    }
+  }
+  if (looksLikeRecord(raw)) {
+    return { current: normalizeModelRecord(raw), archive: [] }
+  }
+  return emptySlotState()
+}
+
 export function normalizeGeneratedModels(raw) {
   const empty = emptyGeneratedModels()
   if (!raw || typeof raw !== 'object') return empty
   const outfits = {}
   if (raw.outfits && typeof raw.outfits === 'object') {
     for (const [id, rec] of Object.entries(raw.outfits)) {
-      const next = normalizeModelRecord(rec)
-      if (next) outfits[id] = next
+      outfits[id] = normalizeSlotState(rec)
     }
   }
   return {
-    lock: normalizeModelRecord(raw.lock),
-    mannequin: normalizeModelRecord(raw.mannequin),
+    lock: normalizeSlotState(raw.lock),
+    mannequin: normalizeSlotState(raw.mannequin),
     outfits,
   }
 }
 
-export function getModelRecord(generatedModels, slot, outfitId) {
+export function getSlotState(generatedModels, slot, outfitId) {
   const models = normalizeGeneratedModels(generatedModels)
-  if (slot === 'outfit') return models.outfits[outfitId] || null
-  return models[slot] || null
+  if (slot === 'outfit') return models.outfits[outfitId] || emptySlotState()
+  return models[slot] || emptySlotState()
 }
 
-export function setModelRecord(generatedModels, slot, outfitId, record) {
+export function setSlotState(generatedModels, slot, outfitId, state) {
   const next = normalizeGeneratedModels(generatedModels)
-  const normalized = record ? normalizeModelRecord(record) : null
+  const normalized = {
+    current: state?.current ? normalizeModelRecord(state.current) : null,
+    archive: Array.isArray(state?.archive) ? state.archive.map(normalizeModelRecord).filter(Boolean) : [],
+  }
   if (slot === 'outfit') {
     const outfits = { ...next.outfits }
-    if (normalized) outfits[outfitId] = { ...normalized, slot: 'outfit', outfitId }
-    else delete outfits[outfitId]
+    if (!normalized.current && !normalized.archive.length) delete outfits[outfitId]
+    else outfits[outfitId] = normalized
     return { ...next, outfits }
   }
   return { ...next, [slot]: normalized }
+}
+
+export function getModelRecord(generatedModels, slot, outfitId) {
+  return getSlotState(generatedModels, slot, outfitId).current
+}
+
+export function setModelRecord(generatedModels, slot, outfitId, record) {
+  const state = getSlotState(generatedModels, slot, outfitId)
+  return setSlotState(generatedModels, slot, outfitId, {
+    ...state,
+    current: record ? normalizeModelRecord(record) : null,
+  })
 }
 
 export function patchModelRecord(generatedModels, slot, outfitId, patch) {
@@ -121,11 +185,64 @@ export function patchModelRecord(generatedModels, slot, outfitId, patch) {
   return setModelRecord(generatedModels, slot, outfitId, { ...current, ...patch })
 }
 
+export function listSlotAssets(generatedModels, slot, outfitId) {
+  const state = getSlotState(generatedModels, slot, outfitId)
+  const rows = []
+  if (state.current) rows.push({ ...state.current, archived: false })
+  for (const rec of state.archive) rows.push({ ...rec, archived: true })
+  return rows
+}
+
+export function archiveCurrentAndSet(generatedModels, slot, outfitId, nextCurrent) {
+  const state = getSlotState(generatedModels, slot, outfitId)
+  const archive = [...state.archive]
+  const cur = state.current
+  if (cur && (cur.status === 'success' || cur.files?.glb || cur.files?.preview)) {
+    archive.unshift(cur)
+  }
+  return setSlotState(generatedModels, slot, outfitId, {
+    current: nextCurrent,
+    archive,
+  })
+}
+
+export function restoreArchivedRecord(generatedModels, slot, outfitId, assetId) {
+  const state = getSlotState(generatedModels, slot, outfitId)
+  const idx = state.archive.findIndex((row) => row.id === assetId)
+  if (idx < 0) return generatedModels
+  const picked = state.archive[idx]
+  const archive = state.archive.filter((_, i) => i !== idx)
+  if (state.current) archive.unshift(state.current)
+  return setSlotState(generatedModels, slot, outfitId, { current: picked, archive })
+}
+
+export function removeAssetRecord(generatedModels, slot, outfitId, assetId) {
+  const state = getSlotState(generatedModels, slot, outfitId)
+  if (state.current?.id === assetId) {
+    const [first, ...rest] = state.archive
+    return setSlotState(generatedModels, slot, outfitId, { current: first || null, archive: rest })
+  }
+  return setSlotState(generatedModels, slot, outfitId, {
+    current: state.current,
+    archive: state.archive.filter((row) => row.id !== assetId),
+  })
+}
+
+export function findAssetRecord(generatedModels, slot, outfitId, assetId) {
+  const state = getSlotState(generatedModels, slot, outfitId)
+  if (state.current?.id === assetId) return state.current
+  return state.archive.find((row) => row.id === assetId) || null
+}
+
 export function slotKey(slot, outfitId) {
   return slot === 'outfit' ? `outfit_${outfitId}` : slot
 }
 
-export function modelBlobId(characterId, slot, outfitId, kind) {
+export function modelBlobId(characterId, slot, outfitId, kind, assetId = LEGACY_ASSET_ID) {
+  return `${characterId}::${slotKey(slot, outfitId)}::${assetId || LEGACY_ASSET_ID}::${kind}`
+}
+
+export function legacyModelBlobId(characterId, slot, outfitId, kind) {
   return `${characterId}::${slotKey(slot, outfitId)}::${kind}`
 }
 
@@ -161,10 +278,14 @@ export function isInFlightStatus(status) {
 export function findInFlightJobs(generatedModels) {
   const models = normalizeGeneratedModels(generatedModels)
   const jobs = []
-  if (isInFlightStatus(models.lock?.status)) jobs.push({ slot: 'lock', outfitId: null, record: models.lock })
-  if (isInFlightStatus(models.mannequin?.status)) jobs.push({ slot: 'mannequin', outfitId: null, record: models.mannequin })
-  for (const [outfitId, record] of Object.entries(models.outfits)) {
-    if (isInFlightStatus(record?.status)) jobs.push({ slot: 'outfit', outfitId, record })
+  if (isInFlightStatus(models.lock?.current?.status)) {
+    jobs.push({ slot: 'lock', outfitId: null, record: models.lock.current })
+  }
+  if (isInFlightStatus(models.mannequin?.current?.status)) {
+    jobs.push({ slot: 'mannequin', outfitId: null, record: models.mannequin.current })
+  }
+  for (const [outfitId, state] of Object.entries(models.outfits)) {
+    if (isInFlightStatus(state?.current?.status)) jobs.push({ slot: 'outfit', outfitId, record: state.current })
   }
   return jobs
 }
@@ -175,6 +296,16 @@ export function filenameForSlot(characterName, slot, outfitName, kind) {
     ? `outfit_${String(outfitName || 'look').replace(/\s+/g, '_')}`
     : slot === 'mannequin' ? 'mannequin' : 'lock'
   const ext = kind === 'stl' ? 'stl' : kind === 'fbx' ? 'fbx' : kind === 'preview' ? 'jpg' : 'glb'
-  const suffix = kind === 'riggedGlb' ? '_rigged' : kind === 'preview' ? '_preview' : ''
+  const suffix = kind === 'riggedGlb'
+    ? '_rigged'
+    : kind === 'preview'
+      ? '_preview'
+      : kind === 'animIdle'
+        ? '_idle'
+        : kind === 'animWalk'
+          ? '_walk'
+          : kind === 'animRun'
+            ? '_run'
+            : ''
   return `${who}_${part}${suffix}.${ext}`
 }

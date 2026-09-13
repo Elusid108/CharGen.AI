@@ -7,26 +7,18 @@ import { lockViewsReady } from '../../utils/tripoModels'
 import { formatCredits } from '../../utils/tripoCredits'
 import { resumeInFlightTripoJobs } from '../../utils/tripoJobs'
 import Model3DSlot from './Model3DSlot'
-import TripoConfirmModal from './TripoConfirmModal'
 
 export default function Model3DPanel() {
   const generatedImages = useCharacterStore((s) => s.generatedImages)
   const generatedModels = useCharacterStore((s) => s.generatedModels)
   const {
-    confirm,
-    engine,
-    setEngine,
-    texture,
-    setTexture,
-    estimate,
-    copy,
     tripoBalance,
     tripoBusy,
     tripoApiKey,
     openMeshConfirm,
     openPaidConfirm,
-    handleConfirm,
-    closeConfirm,
+    openViewer,
+    overlays,
   } = useTripoConfirm()
 
   const views = useMemo(() => lockViewsReady(generatedImages), [generatedImages])
@@ -47,7 +39,7 @@ export default function Model3DPanel() {
           </h3>
           <p className="text-xs text-slate-500 mt-1 max-w-2xl">
             Tripo jobs only run when you confirm a button below — never from Generate All Images.
-            Failed jobs return frozen credits. Regenerating a mesh you dislike costs full price.
+            Meshes stay in this browser until you download them. Failed jobs return frozen credits.
           </p>
         </div>
         <div className="text-xs text-slate-400 font-mono">
@@ -71,6 +63,7 @@ export default function Model3DPanel() {
           tripoBusy={tripoBusy}
           onGenerate={() => openMeshConfirm('lock', null, false)}
           onRetry={() => openMeshConfirm('lock', null, true)}
+          onView={() => openViewer('lock', null, 'mesh')}
           onRig={() => openPaidConfirm('rig', 'lock')}
           onStl={() => openPaidConfirm('stl', 'lock')}
           onFbx={() => openPaidConfirm('fbx', 'lock')}
@@ -86,28 +79,14 @@ export default function Model3DPanel() {
           tripoBusy={tripoBusy}
           onGenerate={() => openMeshConfirm('mannequin', null, false)}
           onRetry={() => openMeshConfirm('mannequin', null, true)}
+          onView={() => openViewer('mannequin', null, 'mesh')}
           onRig={() => openPaidConfirm('rig', 'mannequin')}
           onStl={() => openPaidConfirm('stl', 'mannequin')}
           onFbx={() => openPaidConfirm('fbx', 'mannequin')}
         />
       </div>
 
-      <TripoConfirmModal
-        open={!!confirm}
-        kind={confirm?.kind === 'mesh' ? 'mesh' : confirm?.kind}
-        title={copy.title}
-        description={copy.description}
-        engine={engine}
-        onEngineChange={setEngine}
-        texture={texture}
-        onTextureChange={setTexture}
-        estimate={estimate}
-        balance={tripoBalance}
-        busy={tripoBusy}
-        confirmLabel={copy.confirmLabel}
-        onCancel={closeConfirm}
-        onConfirm={() => void handleConfirm()}
-      />
+      {overlays}
     </div>
   )
 }

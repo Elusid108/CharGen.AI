@@ -1,25 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { Box, Download, Loader2, RefreshCw, Bone, Printer, Gamepad2 } from 'lucide-react'
+import { Box, Download, Loader2, RefreshCw, Bone, Printer, Gamepad2, Maximize2 } from 'lucide-react'
 import { getModelRecord, isInFlightStatus } from '../../utils/tripoModels'
 import { downloadSlotFile, getSlotGlbObjectUrl, getSlotPreviewUrl } from '../../utils/tripoJobs'
 import { formatCredits, RIG_CREDITS, estimateStlCredits, estimateFbxCredits } from '../../utils/tripoCredits'
-
-let modelViewerLoader = null
-
-function ensureModelViewer() {
-  if (typeof window === 'undefined') return Promise.resolve()
-  if (customElements.get('model-viewer')) return Promise.resolve()
-  if (modelViewerLoader) return modelViewerLoader
-  modelViewerLoader = new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.type = 'module'
-    script.src = 'https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Could not load 3D viewer'))
-    document.head.appendChild(script)
-  })
-  return modelViewerLoader
-}
+import { ensureModelViewer } from '../../utils/modelViewer'
 
 export default function Model3DSlot({
   title,
@@ -37,6 +21,7 @@ export default function Model3DSlot({
   onRig,
   onStl,
   onFbx,
+  onView,
 }) {
   const record = getModelRecord(generatedModels, slot, outfitId)
   const inFlight = isInFlightStatus(record?.status)
@@ -53,7 +38,7 @@ export default function Model3DSlot({
     setGlbUrl(null)
 
     ;(async () => {
-      const nextPreview = await getSlotPreviewUrl(slot, outfitId)
+      const nextPreview = await getSlotPreviewUrl(slot, outfitId, record?.id)
       if (cancelled) {
         if (typeof nextPreview === 'string' && nextPreview.startsWith('blob:')) URL.revokeObjectURL(nextPreview)
         return
@@ -63,13 +48,13 @@ export default function Model3DSlot({
         setPreview(nextPreview)
       }
 
-      const nextGlb = await getSlotGlbObjectUrl(slot, outfitId)
+      const nextGlb = await getSlotGlbObjectUrl(slot, outfitId, record?.id)
       if (cancelled) {
-        if (nextGlb) URL.revokeObjectURL(nextGlb)
+        if (nextGlb && String(nextGlb).startsWith('blob:')) URL.revokeObjectURL(nextGlb)
         return
       }
       if (nextGlb) {
-        objectUrls.push(nextGlb)
+        if (String(nextGlb).startsWith('blob:')) objectUrls.push(nextGlb)
         setGlbUrl(nextGlb)
         try {
           await ensureModelViewer()
@@ -84,7 +69,7 @@ export default function Model3DSlot({
       cancelled = true
       objectUrls.forEach((url) => URL.revokeObjectURL(url))
     }
-  }, [slot, outfitId, record?.status, record?.files?.glb, record?.files?.preview, record?.files?.riggedGlb, record?.previewUrl])
+  }, [slot, outfitId, record?.id, record?.status, record?.files?.glb, record?.files?.preview, record?.files?.riggedGlb, record?.previewUrl])
 
   const statusLabel = inFlight
     ? `${record?.status || 'running'} ${record?.progress || 0}%`
@@ -107,10 +92,20 @@ export default function Model3DSlot({
       </button>
 
       {success && (
-        <div className={`grid ${compact ? 'grid-cols-2' : 'grid-cols-2'} gap-2`}>
+        <button
+          type="button"
+          onClick={onView}
+          className="w-full py-2 bg-slate-700/60 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium flex items-center justify-center gap-1"
+        >
+          <Maximize2 size={12} /> View 3D
+        </button>
+      )}
+
+      {success && (
+        <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={() => void downloadSlotFile({ slot, outfitId, kind: record.files?.riggedGlb ? 'riggedGlb' : 'glb' })}
+            onClick={() => void downloadSlotFile({ slot, outfitId, kind: record.files?.riggedGlb ? 'riggedGlb' : 'glb', assetId: record.id })}
             className="py-2 px-2 bg-slate-700/60 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] flex items-center justify-center gap-1"
           >
             <Download size={12} /> GLB
@@ -140,24 +135,6 @@ export default function Model3DSlot({
             <Gamepad2 size={12} /> FBX ~{estimateFbxCredits()}
           </button>
         </div>
-      )}
-      {success && record?.files?.stl && (
-        <button
-          type="button"
-          onClick={() => void downloadSlotFile({ slot, outfitId, kind: 'stl' })}
-          className="w-full text-[11px] text-slate-400 hover:text-white"
-        >
-          Download saved STL
-        </button>
-      )}
-      {success && record?.files?.fbx && (
-        <button
-          type="button"
-          onClick={() => void downloadSlotFile({ slot, outfitId, kind: 'fbx' })}
-          className="w-full text-[11px] text-slate-400 hover:text-white"
-        >
-          Download saved FBX
-        </button>
       )}
     </div>
   )

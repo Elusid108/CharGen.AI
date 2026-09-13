@@ -41,7 +41,6 @@ import {
 } from '../../utils/wardrobe'
 import SeedControl from '../shared/SeedControl'
 import Model3DSlot from '../ImageGeneration/Model3DSlot'
-import TripoConfirmModal from '../ImageGeneration/TripoConfirmModal'
 import { useTripoConfirm } from '../../hooks/useTripoConfirm'
 
 function SlotSelect({ value, options, onChange, placeholder = 'Select...' }) {
@@ -71,19 +70,11 @@ export default function WardrobePanel() {
   const generatedModels = useCharacterStore((s) => s.generatedModels)
   const addToast = useToastStore((s) => s.addToast)
   const {
-    confirm,
-    engine,
-    setEngine,
-    texture,
-    setTexture,
-    estimate,
-    copy,
-    tripoBalance,
     tripoBusy,
     openMeshConfirm,
     openPaidConfirm,
-    handleConfirm,
-    closeConfirm,
+    openViewer,
+    overlays,
   } = useTripoConfirm()
 
   const [showForm, setShowForm] = useState(false)
@@ -400,6 +391,7 @@ export default function WardrobePanel() {
                     tripoBusy={tripoBusy}
                     onGenerate={() => openMeshConfirm('outfit', outfit.id, false)}
                     onRetry={() => openMeshConfirm('outfit', outfit.id, true)}
+                    onView={() => openViewer('outfit', outfit.id, 'mesh')}
                     onRig={() => openPaidConfirm('rig', 'outfit', outfit.id)}
                     onStl={() => openPaidConfirm('stl', 'outfit', outfit.id)}
                     onFbx={() => openPaidConfirm('fbx', 'outfit', outfit.id)}
@@ -425,22 +417,7 @@ export default function WardrobePanel() {
         </div>
       )}
 
-      <TripoConfirmModal
-        open={!!confirm}
-        kind={confirm?.kind === 'mesh' ? 'mesh' : confirm?.kind}
-        title={copy.title}
-        description={copy.description}
-        engine={engine}
-        onEngineChange={setEngine}
-        texture={texture}
-        onTextureChange={setTexture}
-        estimate={estimate}
-        balance={tripoBalance}
-        busy={tripoBusy}
-        confirmLabel={copy.confirmLabel}
-        onCancel={closeConfirm}
-        onConfirm={() => void handleConfirm()}
-      />
+      {overlays}
     </div>
   )
 }
