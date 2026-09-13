@@ -40,6 +40,9 @@ import {
   garmentOptionsForType,
 } from '../../utils/wardrobe'
 import SeedControl from '../shared/SeedControl'
+import Model3DSlot from '../ImageGeneration/Model3DSlot'
+import TripoConfirmModal from '../ImageGeneration/TripoConfirmModal'
+import { useTripoConfirm } from '../../hooks/useTripoConfirm'
 
 function SlotSelect({ value, options, onChange, placeholder = 'Select...' }) {
   return (
@@ -65,7 +68,23 @@ export default function WardrobePanel() {
   const addOutfit = useCharacterStore((s) => s.addOutfit)
   const updateOutfit = useCharacterStore((s) => s.updateOutfit)
   const removeOutfit = useCharacterStore((s) => s.removeOutfit)
+  const generatedModels = useCharacterStore((s) => s.generatedModels)
   const addToast = useToastStore((s) => s.addToast)
+  const {
+    confirm,
+    engine,
+    setEngine,
+    texture,
+    setTexture,
+    estimate,
+    copy,
+    tripoBalance,
+    tripoBusy,
+    openMeshConfirm,
+    openPaidConfirm,
+    handleConfirm,
+    closeConfirm,
+  } = useTripoConfirm()
 
   const [showForm, setShowForm] = useState(false)
   const [generatingId, setGeneratingId] = useState(null)
@@ -247,6 +266,7 @@ export default function WardrobePanel() {
             {' '}
             <span className="text-slate-500">
               Uses the mannequin pose when one exists. Presentation is {presentationMode === 'thirst' ? 'Thirst' : 'Canonical'} (set on the Profile card).
+              3D models are a separate button on each look — adding or generating a 2D outfit never spends Tripo credits.
             </span>
           </p>
         </div>
@@ -367,6 +387,24 @@ export default function WardrobePanel() {
                   }
                 }}
                 onFullscreen={() => outfit.image && setFullscreenImage(outfit.image)}
+                threeD={(
+                  <Model3DSlot
+                    compact
+                    title={outfit.name}
+                    description="3D from this look's 2D image. Never auto-runs when you add a look."
+                    slot="outfit"
+                    outfitId={outfit.id}
+                    generatedModels={generatedModels}
+                    canGenerate={!!outfit.image && !tripoBusy}
+                    generateHint={outfit.image ? '' : 'Generate the 2D look first.'}
+                    tripoBusy={tripoBusy}
+                    onGenerate={() => openMeshConfirm('outfit', outfit.id, false)}
+                    onRetry={() => openMeshConfirm('outfit', outfit.id, true)}
+                    onRig={() => openPaidConfirm('rig', 'outfit', outfit.id)}
+                    onStl={() => openPaidConfirm('stl', 'outfit', outfit.id)}
+                    onFbx={() => openPaidConfirm('fbx', 'outfit', outfit.id)}
+                  />
+                )}
               />
             )
           })}
@@ -386,6 +424,23 @@ export default function WardrobePanel() {
           <p className="absolute bottom-8 text-slate-500 text-sm">Click anywhere to close</p>
         </div>
       )}
+
+      <TripoConfirmModal
+        open={!!confirm}
+        kind={confirm?.kind === 'mesh' ? 'mesh' : confirm?.kind}
+        title={copy.title}
+        description={copy.description}
+        engine={engine}
+        onEngineChange={setEngine}
+        texture={texture}
+        onTextureChange={setTexture}
+        estimate={estimate}
+        balance={tripoBalance}
+        busy={tripoBusy}
+        confirmLabel={copy.confirmLabel}
+        onCancel={closeConfirm}
+        onConfirm={() => void handleConfirm()}
+      />
     </div>
   )
 }
@@ -533,7 +588,7 @@ function OutfitItemRow({ index, item, onChange, onDice, onRemove }) {
   )
 }
 
-function OutfitCard({ outfit, isGenerating, onGenerate, onDelete, onDownload, onFullscreen }) {
+function OutfitCard({ outfit, isGenerating, onGenerate, onDelete, onDownload, onFullscreen, threeD }) {
   const items = outfit.items || []
 
   return (
@@ -616,6 +671,7 @@ function OutfitCard({ outfit, isGenerating, onGenerate, onDelete, onDownload, on
             <Trash2 size={12} />
           </button>
         </div>
+        {threeD}
       </div>
     </div>
   )

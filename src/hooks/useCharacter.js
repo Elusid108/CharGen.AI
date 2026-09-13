@@ -17,7 +17,8 @@ import {
 } from '../data/options/priors'
 import { generateId } from '../utils/imageUtils'
 import { migrateOutfit } from '../utils/wardrobe'
-import { getSetting, saveSetting } from '../utils/db'
+import { deleteSlotModels, getSetting, saveSetting } from '../utils/db'
+import { emptyGeneratedModels, normalizeGeneratedModels } from '../utils/tripoModels'
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
 import { fetchGeminiModels } from '../utils/models'
 import { generateCustomFields } from '../utils/api'
@@ -300,6 +301,7 @@ function newCharacterSessionFields() {
   return {
     characterId: null,
     generatedImages: emptyGeneratedImagesState(),
+    generatedModels: emptyGeneratedModels(),
     backstory: '',
     chatCanon: '',
     wardrobe: [],
@@ -316,6 +318,7 @@ export function migrateSavedCharacter(saved) {
   if (!saved || typeof saved !== 'object') {
     return {
       generatedImages: emptyGeneratedImagesState(),
+      generatedModels: emptyGeneratedModels(),
       presentationMode: 'canonical',
       schemaVersion: CHARACTER_SCHEMA_VERSION,
       attributes: getDefaultCharacter(),
@@ -357,9 +360,16 @@ export function migrateSavedCharacter(saved) {
     ? saved.wardrobe.map((row) => migrateOutfit(row))
     : []
 
+  const outfitIds = new Set(wardrobe.map((row) => row.id).filter(Boolean))
+  const generatedModels = normalizeGeneratedModels(saved.generatedModels)
+  generatedModels.outfits = Object.fromEntries(
+    Object.entries(generatedModels.outfits).filter(([id]) => outfitIds.has(id)),
+  )
+
   return {
     ...saved,
     generatedImages: images,
+    generatedModels,
     presentationMode,
     schemaVersion: CHARACTER_SCHEMA_VERSION,
     attributes,
@@ -377,6 +387,7 @@ export const useCharacterStore = create((set, get) => ({
 
   // Generated content
   generatedImages: emptyGeneratedImagesState(),
+  generatedModels: emptyGeneratedModels(),
   backstory: '',
   chatCanon: '',
   wardrobe: [],
@@ -386,6 +397,10 @@ export const useCharacterStore = create((set, get) => ({
 
   // API Key
   apiKey: '',
+  tripoApiKey: '',
+  tripoBalance: null,
+  tripoBusy: false,
+  tripoBusyLabel: null,
   settingsReady: false,
 
   availableTextModels: [],
@@ -409,13 +424,15 @@ export const useCharacterStore = create((set, get) => ({
   // Initialize - load API key and model prefs from IndexedDB
   initialize: async () => {
     try {
-      const [key, textModel, imageModel] = await Promise.all([
+      const [key, tripoKey, textModel, imageModel] = await Promise.all([
         getSetting('apiKey'),
+        getSetting('tripoApiKey'),
         getSetting('selectedTextModel'),
         getSetting('selectedImageModel'),
       ])
       const updates = { settingsReady: true }
       if (key) updates.apiKey = key
+      if (tripoKey) updates.tripoApiKey = tripoKey
       if (textModel) updates.selectedTextModel = textModel
       if (imageModel) updates.selectedImageModel = imageModel
       set(updates)
@@ -433,6 +450,33 @@ export const useCharacterStore = create((set, get) => ({
     } catch (e) {
       console.error('Failed to save API key:', e)
     }
+  },
+
+  setTripoApiKey: async (key) => {
+    const next = String(key || '').trim()
+    set({ tripoApiKey: next, tripoBalance: next ? get().tripoBalance : null })
+    try {
+      await saveSetting('tripoApiKey', next)
+    } catch (e) {
+      console.error('Failed to save Tripo API key:', e)
+    }
+  },
+
+  setTripoBalance: (balance) => set({ tripoBalance: balance }),
+
+  setTripoBusy: (busy, label = null) => set({
+    tripoBusy: !!busy,
+    tripoBusyLabel: busy ? label : null,
+  }),
+
+  setGeneratedModels: (models) => set({ generatedModels: normalizeGeneratedModels(models) }),
+
+  ensureCharacterId: () => {
+    const existing = get().characterId
+    if (existing) return existing
+    const id = generateId()
+    set({ characterId: id })
+    return id
   },
 
   setSelectedTextModel: async (model) => {
@@ -603,9 +647,16 @@ export const useCharacterStore = create((set, get) => ({
   },
 
   removeOutfit: (outfitId) => {
-    set(state => ({
-      wardrobe: state.wardrobe.filter(o => o.id !== outfitId)
-    }))
+    const { characterId } = get()
+    set((state) => {
+      const outfits = { ...(state.generatedModels?.outfits || {}) }
+      delete outfits[outfitId]
+      return {
+        wardrobe: state.wardrobe.filter((o) => o.id !== outfitId),
+        generatedModels: { ...normalizeGeneratedModels(state.generatedModels), outfits },
+      }
+    })
+    if (characterId) void deleteSlotModels(characterId, 'outfit', outfitId)
   },
 
   /**
@@ -752,6 +803,7 @@ export const useCharacterStore = create((set, get) => ({
       characterId: migrated.id,
       character: migrated.attributes || getDefaultCharacter(),
       generatedImages: migrated.generatedImages,
+      generatedModels: normalizeGeneratedModels(migrated.generatedModels),
       backstory: migrated.backstory || '',
       chatCanon: migrated.chatCanon || '',
       wardrobe: migrated.wardrobe || [],
@@ -772,6 +824,7 @@ export const useCharacterStore = create((set, get) => ({
       name: state.character.name || 'Unnamed Character',
       attributes: { ...state.character },
       generatedImages: { ...state.generatedImages },
+      generatedModels: normalizeGeneratedModels(state.generatedModels),
       backstory: state.backstory,
       chatCanon: state.chatCanon || '',
       wardrobe: [...state.wardrobe],
@@ -793,6 +846,7 @@ export const useCharacterStore = create((set, get) => ({
       character: getDefaultCharacter(),
       characterId: null,
       generatedImages: emptyGeneratedImagesState(),
+      generatedModels: emptyGeneratedModels(),
       backstory: '',
       chatCanon: '',
       wardrobe: [],

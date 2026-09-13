@@ -1,0 +1,32 @@
+---
+description: Bump app version and update README after shipping changes — do not wait to be asked
+alwaysApply: true
+---
+
+# Version and README
+
+When a change ships to the app (feature, bug fix, or a debug-session fix that stays in the code), bump the version and refresh the README **in the same turn**. Do not wait for the user to ask. Remove throwaway debug instrumentation first, then wrap up with version + README.
+
+## Version (keep these in lockstep)
+
+- `package.json` `version` (source of truth; Settings and Sidebar read it via `src/appVersion.js`)
+- `package-lock.json` root `version` and `packages[""].version`
+- Fallback string in `src/appVersion.js` if `package.json` import fails
+
+Bump:
+
+- **Patch** `x.y.Z` — fixes, wiring, CORS/proxy, copy, no new capability
+- **Minor** `x.Y.0` — new user-facing feature (e.g. 3D Studio)
+- **Major** `X.0.0` — only if library saves or a required setup path breaks
+
+Skip the bump for: docs/rules-only edits, reverted instrumentation with no behavior change, or mid-debug WIP that is not the finished fix.
+
+## README
+
+Update `README.md` in the same wrap-up:
+
+- Header `**vX.Y.Z**` must match `package.json`
+- Add or revise feature / setup / privacy / tech-stack lines the change made stale
+- `CHARACTER_SCHEMA_VERSION` is **not** the app version. Bump it in `src/data/schemas.js` only when the saved character shape changes, and mention the new schema in the Library section
+
+Example: a Tripo CORS proxy fix with a new 3D Studio is a **minor** bump plus README sections for 3D, the Tripo key, schema 8, and local-only proxy vs GitHub Pages.

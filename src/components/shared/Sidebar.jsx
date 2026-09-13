@@ -40,6 +40,7 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
       setCharacterId(compressed.id)
       useCharacterStore.setState({
         generatedImages: compressed.generatedImages,
+        generatedModels: compressed.generatedModels,
         wardrobe: compressed.wardrobe,
         ...(compressed.chat ? { chat: compressed.chat } : {}),
       })

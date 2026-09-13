@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
-import { getAllCharacters, deleteCharacter, deleteMultipleCharacters, saveCharacter } from '../../utils/db'
+import { getAllCharacters, deleteCharacter, deleteMultipleCharacters, saveCharacter, getModelBlobsForCharacter } from '../../utils/db'
 import { downloadImage, base64ToDataUrl, generateId, inferImageMime, extensionForImageMime, stripBase64Prefix } from '../../utils/imageUtils'
 import { migrateSavedCharacter } from '../../hooks/useCharacter'
 import { resolveLibraryThumbnail } from '../../utils/imageGeneration'
@@ -130,7 +130,7 @@ export default function LibraryPanel() {
       const zip = new JSZip()
       const folder = zip.folder('CharGen_Characters')
 
-      characters.filter(c => selectedIds.has(c.id)).forEach(char => {
+      for (const char of characters.filter((c) => selectedIds.has(c.id))) {
         const migrated = migrateSavedCharacter(char)
         const filename = (migrated.name || 'unnamed').replace(/\s+/g, '_')
         folder.file(`${filename}.json`, JSON.stringify(migrated, null, 2))
@@ -145,7 +145,14 @@ export default function LibraryPanel() {
             }
           })
         }
-      })
+
+        const models = await getModelBlobsForCharacter(migrated.id)
+        for (const row of models) {
+          if (!row?.blob) continue
+          const fname = row.filename || `${filename}_${row.kind}`
+          folder.file(`${filename}_${fname}`, row.blob)
+        }
+      }
 
       const blob = await zip.generateAsync({ type: 'blob' })
       const link = document.createElement('a')

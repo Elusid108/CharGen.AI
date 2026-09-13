@@ -11,7 +11,7 @@ import ChatPanel from './components/Chat/ChatPanel'
 import SettingsPanel from './components/shared/SettingsPanel'
 import ToastContainer from './components/shared/ToastContainer'
 import { useCharacterStore } from './hooks/useCharacter'
-import { useToastStore } from './hooks/useToast'
+import { resumeInFlightTripoJobs, refreshTripoBalanceSilent } from './utils/tripoJobs'
 
 const FORM_TABS = ['identity', 'physical', 'face', 'movement', 'psychology', 'narrative', 'social', 'adult']
 
@@ -20,6 +20,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [contextInfo, setContextInfo] = useState({ title: 'Select an attribute', description: 'Hover over or change any field to see definitions, implications, and tips.' })
   const apiKey = useCharacterStore(s => s.apiKey)
+  const tripoApiKey = useCharacterStore(s => s.tripoApiKey)
+  const characterId = useCharacterStore(s => s.characterId)
   const settingsReady = useCharacterStore(s => s.settingsReady)
   const [showSettings, setShowSettings] = useState(false)
 
@@ -32,6 +34,12 @@ export default function App() {
     if (!apiKey?.trim()) return
     void useCharacterStore.getState().refreshModels(apiKey)
   }, [apiKey])
+
+  useEffect(() => {
+    if (!tripoApiKey?.trim()) return
+    void refreshTripoBalanceSilent()
+    void resumeInFlightTripoJobs()
+  }, [tripoApiKey, characterId])
 
   const isFormTab = FORM_TABS.includes(currentTab)
 

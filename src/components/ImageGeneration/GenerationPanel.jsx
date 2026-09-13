@@ -22,6 +22,7 @@ import {
 import { NARRATIVE_LENSES, guessGenreFromCharacter, pickNarrativeLens } from '../../utils/storyBible'
 import { downloadImage, base64ToDataUrl, compressImageBase64, inferImageMime, extensionForImageMime, aspectClassForRatio } from '../../utils/imageUtils'
 import SeedControl from '../shared/SeedControl'
+import Model3DPanel from './Model3DPanel'
 
 const IMAGE_TYPES = [
   { id: 'tpose', label: 'T-Pose Lock', icon: RotateCcw, ratio: '3:4', description: 'Front identity lock', lockBadge: true },
@@ -471,6 +472,8 @@ export default function GenerationPanel() {
           )
         })}
       </div>
+
+      <Model3DPanel />
 
       {/* Narrative Engine */}
       <div className="glass-panel p-6">

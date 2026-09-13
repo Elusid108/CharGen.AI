@@ -1,14 +1,17 @@
 /**
  * IndexedDB wrapper for CharGen.AI
- * Handles character storage, wardrobe, and generated content
+ * Handles character storage, wardrobe, generated content, and 3D model blobs
  */
 
+import { modelBlobId, MODEL_FILE_KINDS } from './tripoModels'
+
 const DB_NAME = 'CharGenAI_DB'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 const STORES = {
   CHARACTERS: 'characters',
   SETTINGS: 'settings',
+  MODELS: 'models',
 }
 
 function openDB() {
@@ -17,7 +20,6 @@ function openDB() {
 
     request.onerror = () => reject(request.error)
     request.onsuccess = () => resolve(request.result)
-
     request.onupgradeneeded = (event) => {
       const db = event.target.result
 
@@ -31,7 +33,19 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
         db.createObjectStore(STORES.SETTINGS, { keyPath: 'key' })
       }
+
+      if (!db.objectStoreNames.contains(STORES.MODELS)) {
+        const modelStore = db.createObjectStore(STORES.MODELS, { keyPath: 'id' })
+        modelStore.createIndex('characterId', 'characterId', { unique: false })
+      }
     }
+  })
+}
+
+function idbReq(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
   })
 }
 
@@ -72,6 +86,7 @@ export async function getAllCharacters() {
 }
 
 export async function deleteCharacter(id) {
+  await deleteCharacterModels(id)
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction([STORES.CHARACTERS], 'readwrite')
@@ -83,6 +98,9 @@ export async function deleteCharacter(id) {
 }
 
 export async function deleteMultipleCharacters(ids) {
+  for (const id of ids) {
+    await deleteCharacterModels(id)
+  }
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction([STORES.CHARACTERS], 'readwrite')
@@ -90,7 +108,7 @@ export async function deleteMultipleCharacters(ids) {
     let remaining = ids.length
     if (remaining === 0) return resolve()
 
-    ids.forEach(id => {
+    ids.forEach((id) => {
       const request = store.delete(id)
       request.onsuccess = () => {
         remaining--
@@ -99,6 +117,61 @@ export async function deleteMultipleCharacters(ids) {
       request.onerror = () => reject(request.error)
     })
   })
+}
+
+// --- 3D model blobs ---
+
+export async function putModelBlob({ characterId, slot, outfitId, kind, blob, mime, filename }) {
+  const db = await openDB()
+  const record = {
+    id: modelBlobId(characterId, slot, outfitId, kind),
+    characterId,
+    slot,
+    outfitId: outfitId || null,
+    kind,
+    blob,
+    mime: mime || blob?.type || 'application/octet-stream',
+    filename: filename || kind,
+    updatedAt: Date.now(),
+  }
+  const tx = db.transaction([STORES.MODELS], 'readwrite')
+  await idbReq(tx.objectStore(STORES.MODELS).put(record))
+  return record.id
+}
+
+export async function getModelBlob(characterId, slot, outfitId, kind) {
+  const db = await openDB()
+  const tx = db.transaction([STORES.MODELS], 'readonly')
+  return idbReq(tx.objectStore(STORES.MODELS).get(modelBlobId(characterId, slot, outfitId, kind)))
+}
+
+export async function getModelBlobsForCharacter(characterId) {
+  const db = await openDB()
+  const tx = db.transaction([STORES.MODELS], 'readonly')
+  const index = tx.objectStore(STORES.MODELS).index('characterId')
+  const rows = await idbReq(index.getAll(characterId))
+  return Array.isArray(rows) ? rows : []
+}
+
+export async function deleteModelBlob(characterId, slot, outfitId, kind) {
+  const db = await openDB()
+  const tx = db.transaction([STORES.MODELS], 'readwrite')
+  await idbReq(tx.objectStore(STORES.MODELS).delete(modelBlobId(characterId, slot, outfitId, kind)))
+}
+
+export async function deleteSlotModels(characterId, slot, outfitId) {
+  if (!characterId) return
+  await Promise.all(MODEL_FILE_KINDS.map((kind) => deleteModelBlob(characterId, slot, outfitId, kind)))
+}
+
+export async function deleteCharacterModels(characterId) {
+  if (!characterId) return
+  const rows = await getModelBlobsForCharacter(characterId)
+  if (!rows.length) return
+  const db = await openDB()
+  const tx = db.transaction([STORES.MODELS], 'readwrite')
+  const store = tx.objectStore(STORES.MODELS)
+  await Promise.all(rows.map((row) => idbReq(store.delete(row.id))))
 }
 
 // --- Settings ---

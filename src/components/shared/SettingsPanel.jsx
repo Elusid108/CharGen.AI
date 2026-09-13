@@ -1,15 +1,20 @@
 import React, { useState } from 'react'
-import { X, Key, HardDrive, ExternalLink, RefreshCw } from 'lucide-react'
+import { X, Key, HardDrive, ExternalLink, RefreshCw, Box } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { getStorageEstimate } from '../../utils/db'
 import { formatBytes } from '../../utils/imageUtils'
 import { modelIdFromApiName } from '../../utils/models'
 import { APP_VERSION } from '../../appVersion'
+import { refreshTripoBalanceSilent } from '../../utils/tripoJobs'
+import { formatCredits } from '../../utils/tripoCredits'
 
 export default function SettingsPanel({ onClose }) {
   const apiKey = useCharacterStore(s => s.apiKey)
   const setApiKey = useCharacterStore(s => s.setApiKey)
+  const tripoApiKey = useCharacterStore(s => s.tripoApiKey)
+  const setTripoApiKey = useCharacterStore(s => s.setTripoApiKey)
+  const tripoBalance = useCharacterStore(s => s.tripoBalance)
   const availableTextModels = useCharacterStore(s => s.availableTextModels)
   const availableImageModels = useCharacterStore(s => s.availableImageModels)
   const selectedTextModel = useCharacterStore(s => s.selectedTextModel)
@@ -20,8 +25,10 @@ export default function SettingsPanel({ onClose }) {
   const addToast = useToastStore(s => s.addToast)
 
   const [keyInput, setKeyInput] = useState(apiKey || '')
+  const [tripoKeyInput, setTripoKeyInput] = useState(tripoApiKey || '')
   const [storage, setStorage] = useState(null)
   const [isRefreshingModels, setIsRefreshingModels] = useState(false)
+  const [isRefreshingTripo, setIsRefreshingTripo] = useState(false)
 
   React.useEffect(() => {
     getStorageEstimate().then(setStorage)
@@ -30,6 +37,14 @@ export default function SettingsPanel({ onClose }) {
   React.useEffect(() => {
     setKeyInput(apiKey || '')
   }, [apiKey])
+
+  React.useEffect(() => {
+    setTripoKeyInput(tripoApiKey || '')
+  }, [tripoApiKey])
+
+  React.useEffect(() => {
+    if (tripoApiKey) void refreshTripoBalanceSilent()
+  }, [tripoApiKey])
 
   const handleSaveKey = () => {
     if (!keyInput.trim()) {
@@ -167,6 +182,77 @@ export default function SettingsPanel({ onClose }) {
           )}
         </div>
 
+        {/* Tripo API Key */}
+        <div className="space-y-4 mb-8">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-400 uppercase tracking-wide">
+            <Box size={14} />
+            Tripo 3D API Key
+          </div>
+          <p className="text-xs text-slate-500">
+            Separate from Google. Used only when you press a Generate 3D button. Stored locally in this browser.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={tripoKeyInput}
+              onChange={(e) => setTripoKeyInput(e.target.value)}
+              placeholder="Enter your Tripo API key..."
+              className="input-field flex-1"
+            />
+            <button
+              type="button"
+              onClick={async () => {
+                if (!tripoKeyInput.trim()) {
+                  addToast('Please enter a Tripo API key', 'warning')
+                  return
+                }
+                await setTripoApiKey(tripoKeyInput.trim())
+                addToast('Tripo API key saved', 'success')
+                setIsRefreshingTripo(true)
+                const bal = await refreshTripoBalanceSilent()
+                setIsRefreshingTripo(false)
+                if (!bal) addToast('Key saved, but balance could not be loaded', 'warning')
+              }}
+              className="btn-primary text-sm px-4"
+            >
+              Save
+            </button>
+          </div>
+          <a
+            href="https://platform.tripo3d.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+          >
+            Open Tripo console / API keys
+            <ExternalLink size={10} />
+          </a>
+          {tripoApiKey && (
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-lg">
+              <span className="text-xs text-slate-400">
+                {tripoBalance
+                  ? `${formatCredits(tripoBalance.balance)} credits available${tripoBalance.frozen ? ` (${formatCredits(tripoBalance.frozen)} frozen)` : ''}`
+                  : 'Balance not loaded'}
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsRefreshingTripo(true)
+                  const bal = await refreshTripoBalanceSilent()
+                  setIsRefreshingTripo(false)
+                  if (bal) addToast('Tripo balance updated', 'success')
+                  else addToast('Could not load Tripo balance', 'error')
+                }}
+                disabled={isRefreshingTripo}
+                className="text-xs px-3 py-2 bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/30 rounded-md transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-50 border border-cyan-500/30"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isRefreshingTripo ? 'animate-spin' : ''}`} />
+                {isRefreshingTripo ? 'Checking…' : 'Refresh balance'}
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Storage Info */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-400 uppercase tracking-wide">
@@ -196,7 +282,7 @@ export default function SettingsPanel({ onClose }) {
 
           <p className="text-xs text-slate-500">
             All data is stored locally in your browser using IndexedDB.
-            Characters, images, and settings persist between sessions.
+            Characters, images, 3D models, and settings persist between sessions.
           </p>
         </div>
 
