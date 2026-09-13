@@ -10,8 +10,13 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Closing other CharGen.AI servers...
+echo Closing leftover CharGen.AI servers and freeing port 5173...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\stop-chargen-servers.ps1"
+if errorlevel 1 (
+  echo Could not free port 5173. Close the program using it, then try again.
+  pause
+  exit /b 1
+)
 
 if not exist "node_modules\" (
   echo Installing dependencies...

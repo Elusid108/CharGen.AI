@@ -1,6 +1,6 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.9.1** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D.
+**v1.9.2** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D.
 
 ## Features
 
@@ -93,7 +93,7 @@ Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and f
 
 ### Run locally (Windows)
 
-Double-click `launch.bat` in the repo root. It closes leftover CharGen.AI Vite servers (including ones that hopped to other ports), installs dependencies if needed, and opens `http://localhost:5173/CharGen.AI/`.
+Double-click `launch.bat` in the repo root. It closes leftover CharGen.AI Vite servers, frees port 5173 if another local Vite is sitting on it, installs dependencies if needed, and opens `http://localhost:5173/CharGen.AI/`.
 
 ### Run locally (any platform)
 
