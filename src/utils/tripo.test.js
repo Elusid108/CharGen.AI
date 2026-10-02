@@ -2,13 +2,15 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import {
   resolveTripoBase, resolveTripoTransportStatus, resolveArtifactFetchUrl, normalizeProxyUrl, configureTripoTransport,
   tripoRequest, uploadTripoFile, waitForTripoTask, listTripoTasks, getTripoBalance, TripoApiError,
+  normalizeTripoRegion, getTripoTransport, TRIPO_REGIONS,
 } from './tripo'
+import { TRIPO_UPSTREAMS } from '../../proxy/tripoUpstream.js'
 
 function reply(status, body, headers = {}) {
   return { ok: status >= 200 && status < 300, status, headers: { get: (k) => headers[k] ?? null }, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) }
 }
 
-beforeEach(() => configureTripoTransport({ proxyUrl: '' }))
+beforeEach(() => configureTripoTransport({ proxyUrl: '', region: 'ov' }))
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('transport resolution', () => {
@@ -20,6 +22,28 @@ describe('transport resolution', () => {
     expect(resolveTripoTransportStatus({ proxyUrl: 'https://p.workers.dev' })).toBe('custom-proxy')
     expect(resolveTripoTransportStatus({ hostname: 'localhost' })).toBe('local-proxy')
     expect(resolveTripoTransportStatus({ hostname: 'x.io' })).toBe('direct-blocked')
+  })
+
+  it('routes China-region keys to openapi.tripo3d.com on every transport', () => {
+    expect(resolveTripoBase({ hostname: 'elusid108.github.io', region: 'cn' })).toBe('https://openapi.tripo3d.com/v3')
+    expect(resolveTripoBase({ hostname: 'localhost', region: 'cn' })).toBe('/tripo-cn-api')
+    expect(resolveTripoBase({ proxyUrl: 'https://p.dev', region: 'cn' })).toBe('https://p.dev/cn/v3')
+    expect(resolveTripoBase({ hostname: 'x.io', region: 'bogus' })).toBe('https://openapi.tripo3d.ai/v3')
+    expect(normalizeTripoRegion('cn')).toBe('cn')
+    expect(normalizeTripoRegion(undefined)).toBe('ov')
+  })
+
+  it('region hosts match the relays', () => {
+    expect(TRIPO_REGIONS.ov.upstream).toBe(TRIPO_UPSTREAMS.ov)
+    expect(TRIPO_REGIONS.cn.upstream).toBe(TRIPO_UPSTREAMS.cn)
+  })
+
+  it('configureTripoTransport updates only the fields passed', () => {
+    configureTripoTransport({ region: 'cn' })
+    configureTripoTransport({ proxyUrl: 'https://p.dev' })
+    expect(getTripoTransport()).toEqual({ proxyUrl: 'https://p.dev', region: 'cn' })
+    configureTripoTransport({ proxyUrl: '' })
+    expect(getTripoTransport()).toEqual({ proxyUrl: '', region: 'cn' })
   })
 
   it('normalizeProxyUrl accepts https and local http only', () => {
@@ -71,6 +95,16 @@ describe('tripoRequest', () => {
     vi.stubGlobal('FormData', class { append() {} })
     expect(await uploadTripoFile('k', { name: 'a.jpg' })).toBe('tok')
     expect(fetchMock.mock.calls[0][0]).toBe('https://p.dev/v3/files')
+  })
+
+  it('uses the configured region, and a per-call region overrides it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(reply(200, { code: 0, data: { balance: 1, frozen: 0 } }))
+    vi.stubGlobal('fetch', fetchMock)
+    configureTripoTransport({ region: 'cn' })
+    await getTripoBalance('k')
+    await getTripoBalance('k', { region: 'ov' })
+    expect(fetchMock.mock.calls[0][0]).toBe('https://openapi.tripo3d.com/v3/account/balance')
+    expect(fetchMock.mock.calls[1][0]).toBe('https://openapi.tripo3d.ai/v3/account/balance')
   })
 })
 

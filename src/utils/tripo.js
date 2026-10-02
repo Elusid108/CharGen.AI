@@ -10,6 +10,19 @@ import { buildGenerationPayload, modelForEngine, TRIPO_ROUTES, TRIPO_FAILED } fr
 
 export const TRIPO_UPSTREAM = 'https://openapi.tripo3d.ai/v3'
 export const TRIPO_BASE = TRIPO_UPSTREAM
+
+/**
+ * A Tripo key is valid in exactly one region; the other host answers code 1002 like a bad key.
+ * Keep `upstream` in step with proxy/tripoUpstream.js (the Vite relay and the Worker).
+ */
+export const TRIPO_REGIONS = {
+  ov: { label: 'International', upstream: 'https://openapi.tripo3d.ai', localPrefix: '/tripo-api', proxyPrefix: '' },
+  cn: { label: 'China', upstream: 'https://openapi.tripo3d.com', localPrefix: '/tripo-cn-api', proxyPrefix: '/cn' },
+}
+
+export function normalizeTripoRegion(raw) {
+  return raw === 'cn' ? 'cn' : 'ov'
+}
 /** Tripo artifact links stop working a few minutes after a task finishes. */
 export const ARTIFACT_TTL_MS = 5 * 60 * 1000
 
@@ -17,7 +30,7 @@ const POLL_MS = 2000
 const TASK_TIMEOUT_MS = 8 * 60 * 1000
 const MAX_HTTP_RETRIES = 5
 
-const transport = { proxyUrl: '' }
+const transport = { proxyUrl: '', region: 'ov' }
 
 export function normalizeProxyUrl(raw) {
   const s = String(raw || '').trim().replace(/\/+$/, '')
@@ -26,8 +39,10 @@ export function normalizeProxyUrl(raw) {
   return s
 }
 
-export function configureTripoTransport({ proxyUrl } = {}) {
-  transport.proxyUrl = normalizeProxyUrl(proxyUrl)
+/** Only the fields passed change, so setting the proxy keeps the region and vice versa. */
+export function configureTripoTransport({ proxyUrl, region } = {}) {
+  if (proxyUrl !== undefined) transport.proxyUrl = normalizeProxyUrl(proxyUrl)
+  if (region !== undefined) transport.region = normalizeTripoRegion(region)
   return { ...transport }
 }
 
@@ -45,11 +60,12 @@ function isLocalHostname(hostname) {
 }
 
 /** Pure: which base URL a request should use. */
-export function resolveTripoBase({ proxyUrl = '', hostname = '' } = {}) {
+export function resolveTripoBase({ proxyUrl = '', hostname = '', region = 'ov' } = {}) {
+  const r = TRIPO_REGIONS[normalizeTripoRegion(region)]
   const proxy = normalizeProxyUrl(proxyUrl)
-  if (proxy) return `${proxy}/v3`
-  if (isLocalHostname(hostname)) return '/tripo-api'
-  return TRIPO_UPSTREAM
+  if (proxy) return `${proxy}${r.proxyPrefix}/v3`
+  if (isLocalHostname(hostname)) return r.localPrefix
+  return `${r.upstream}/v3`
 }
 
 /** 'custom-proxy' | 'local-proxy' | 'direct-blocked' (browser CORS will refuse direct calls). */
@@ -63,8 +79,8 @@ export function tripoTransportStatus() {
   return resolveTripoTransportStatus({ proxyUrl: transport.proxyUrl, hostname: currentHostname() })
 }
 
-function getTripoBase() {
-  return resolveTripoBase({ proxyUrl: transport.proxyUrl, hostname: currentHostname() })
+function getTripoBase(region = transport.region) {
+  return resolveTripoBase({ proxyUrl: transport.proxyUrl, hostname: currentHostname(), region })
 }
 
 export class TripoApiError extends Error {
@@ -141,11 +157,12 @@ export function corsBlockedMessage() {
 /**
  * @param {'GET'|'POST'} method
  * @param {string} path — relative to the v3 base
- * @param {{ apiKey: string, json?: object, formData?: FormData, signal?: AbortSignal }} opts
+ * @param {{ apiKey: string, json?: object, formData?: FormData, signal?: AbortSignal, region?: 'ov'|'cn' }} opts
+ *   `region` overrides the configured one (used to probe a key before saving it).
  */
-export async function tripoRequest(method, path, { apiKey, json, formData, signal } = {}) {
+export async function tripoRequest(method, path, { apiKey, json, formData, signal, region } = {}) {
   if (!apiKey) throw new TripoApiError('Add your Tripo API key in Settings first.')
-  const url = `${getTripoBase()}${path}`
+  const url = `${getTripoBase(region)}${path}`
   const headers = authHeaders(apiKey, json ? { 'Content-Type': 'application/json' } : {})
   let attempt = 0
   for (;;) {
@@ -178,7 +195,7 @@ export async function tripoRequest(method, path, { apiKey, json, formData, signa
 }
 
 export async function getTripoBalance(apiKey, opts = {}) {
-  const data = await tripoRequest('GET', TRIPO_ROUTES.balance, { apiKey, signal: opts.signal })
+  const data = await tripoRequest('GET', TRIPO_ROUTES.balance, { apiKey, signal: opts.signal, region: opts.region })
   return { balance: Number(data?.balance) || 0, frozen: Number(data?.frozen) || 0 }
 }
 

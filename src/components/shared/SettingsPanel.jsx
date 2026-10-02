@@ -6,9 +6,20 @@ import { getStorageEstimate } from '../../utils/db'
 import { formatBytes } from '../../utils/imageUtils'
 import { modelIdFromApiName } from '../../utils/models'
 import { APP_VERSION } from '../../appVersion'
-import { refreshTripoBalanceSilent } from '../../utils/tripoJobs'
+import { refreshTripoBalance, refreshTripoBalanceSilent } from '../../utils/tripoJobs'
 import { formatCredits } from '../../utils/tripoCredits'
-import { getTripoBalance, normalizeProxyUrl, resolveTripoTransportStatus } from '../../utils/tripo'
+import { getTripoBalance, normalizeProxyUrl, resolveTripoTransportStatus, TRIPO_REGIONS } from '../../utils/tripo'
+import { describeTripoKeyCheck, detectTripoRegion, normalizeTripoKey } from '../../utils/tripoKey'
+
+// Keeps browser password managers from autofilling or overwriting API key fields.
+const KEY_INPUT_PROPS = {
+  autoComplete: 'new-password',
+  autoCorrect: 'off',
+  autoCapitalize: 'off',
+  spellCheck: false,
+  'data-1p-ignore': true,
+  'data-lpignore': 'true',
+}
 
 export default function SettingsPanel({ onClose }) {
   const apiKey = useCharacterStore(s => s.apiKey)
@@ -17,7 +28,10 @@ export default function SettingsPanel({ onClose }) {
   const setTripoApiKey = useCharacterStore(s => s.setTripoApiKey)
   const tripoProxyUrl = useCharacterStore(s => s.tripoProxyUrl)
   const setTripoProxyUrl = useCharacterStore(s => s.setTripoProxyUrl)
+  const tripoRegion = useCharacterStore(s => s.tripoRegion)
+  const setTripoRegion = useCharacterStore(s => s.setTripoRegion)
   const tripoBalance = useCharacterStore(s => s.tripoBalance)
+  const setTripoBalance = useCharacterStore(s => s.setTripoBalance)
   const availableTextModels = useCharacterStore(s => s.availableTextModels)
   const availableImageModels = useCharacterStore(s => s.availableImageModels)
   const selectedTextModel = useCharacterStore(s => s.selectedTextModel)
@@ -70,7 +84,7 @@ export default function SettingsPanel({ onClose }) {
   }
 
   const handleTestProxy = async () => {
-    const key = tripoKeyInput.trim() || tripoApiKey
+    const key = normalizeTripoKey(tripoKeyInput) || tripoApiKey
     if (!key) {
       addToast('Save a Tripo key first, then test the proxy', 'warning')
       return
@@ -89,6 +103,41 @@ export default function SettingsPanel({ onClose }) {
   React.useEffect(() => {
     if (tripoApiKey) void refreshTripoBalanceSilent()
   }, [tripoApiKey])
+
+  const handleSaveTripoKey = async () => {
+    const key = normalizeTripoKey(tripoKeyInput)
+    if (!key) {
+      addToast('Please enter a Tripo API key', 'warning')
+      return
+    }
+    setIsRefreshingTripo(true)
+    try {
+      const result = await detectTripoRegion(key, (region) => getTripoBalance(key, { region }), { prefer: tripoRegion })
+      const outcome = describeTripoKeyCheck(result, { key, transportStatus })
+      if (outcome.save) {
+        // Region first: saving the key triggers a balance refresh on the configured region.
+        if (result.ok) await setTripoRegion(result.region)
+        await setTripoApiKey(key)
+        setTripoKeyInput(key)
+        if (result.ok) setTripoBalance(result.balance)
+      }
+      addToast(outcome.message, outcome.level, outcome.level === 'success' ? 4000 : 10000)
+    } finally {
+      setIsRefreshingTripo(false)
+    }
+  }
+
+  const handleRefreshTripoBalance = async () => {
+    setIsRefreshingTripo(true)
+    try {
+      await refreshTripoBalance()
+      addToast('Tripo balance updated', 'success')
+    } catch (e) {
+      addToast(`Could not load Tripo balance: ${e?.message || 'unknown error'}`, 'error', 8000)
+    } finally {
+      setIsRefreshingTripo(false)
+    }
+  }
 
   const handleSaveKey = () => {
     if (!keyInput.trim()) {
@@ -149,6 +198,8 @@ export default function SettingsPanel({ onClose }) {
           <div className="flex gap-2">
             <input
               type="password"
+              name="google-api-key"
+              {...KEY_INPUT_PROPS}
               value={keyInput}
               onChange={(e) => setKeyInput(e.target.value)}
               placeholder="Enter your Google AI API key..."
@@ -244,32 +295,25 @@ export default function SettingsPanel({ onClose }) {
           </div>
           <p className="text-xs text-slate-500">
             Separate from Google. Used only when you press a Generate 3D button. Stored locally in this browser.
+            Save checks the key with a free balance call and picks its region (International or China) automatically.
           </p>
           <div className="flex gap-2">
             <input
               type="password"
+              name="tripo-api-key"
+              {...KEY_INPUT_PROPS}
               value={tripoKeyInput}
               onChange={(e) => setTripoKeyInput(e.target.value)}
-              placeholder="Enter your Tripo API key..."
+              placeholder="Enter your Tripo API key (tsk_...)"
               className="input-field flex-1"
             />
             <button
               type="button"
-              onClick={async () => {
-                if (!tripoKeyInput.trim()) {
-                  addToast('Please enter a Tripo API key', 'warning')
-                  return
-                }
-                await setTripoApiKey(tripoKeyInput.trim())
-                addToast('Tripo API key saved', 'success')
-                setIsRefreshingTripo(true)
-                const bal = await refreshTripoBalanceSilent()
-                setIsRefreshingTripo(false)
-                if (!bal) addToast('Key saved, but balance could not be loaded', 'warning')
-              }}
-              className="btn-primary text-sm px-4"
+              onClick={() => void handleSaveTripoKey()}
+              disabled={isRefreshingTripo}
+              className="btn-primary text-sm px-4 disabled:opacity-50"
             >
-              Save
+              {isRefreshingTripo ? 'Checking…' : 'Save'}
             </button>
             {tripoApiKey && (
               <button
@@ -297,16 +341,11 @@ export default function SettingsPanel({ onClose }) {
                 {tripoBalance
                   ? `${formatCredits(tripoBalance.balance)} credits available${tripoBalance.frozen ? ` (${formatCredits(tripoBalance.frozen)} frozen)` : ''}`
                   : 'Balance not loaded'}
+                {` · ${TRIPO_REGIONS[tripoRegion]?.label || 'International'} region`}
               </span>
               <button
                 type="button"
-                onClick={async () => {
-                  setIsRefreshingTripo(true)
-                  const bal = await refreshTripoBalanceSilent()
-                  setIsRefreshingTripo(false)
-                  if (bal) addToast('Tripo balance updated', 'success')
-                  else addToast('Could not load Tripo balance', 'error')
-                }}
+                onClick={() => void handleRefreshTripoBalance()}
                 disabled={isRefreshingTripo}
                 className="text-xs px-3 py-2 bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/30 rounded-md transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-50 border border-cyan-500/30"
               >

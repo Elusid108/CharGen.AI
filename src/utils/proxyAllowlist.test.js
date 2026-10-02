@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isAllowedArtifactHost, isAllowedArtifactUrl } from '../../proxy/artifactAllowlist.js'
+import { resolveUpstreamUrl, TRIPO_UPSTREAMS } from '../../proxy/tripoUpstream.js'
 
 describe('artifact allow-list', () => {
   it('allows Tripo hosts and rejects look-alikes', () => {
@@ -12,10 +13,18 @@ describe('artifact allow-list', () => {
     expect(isAllowedArtifactUrl('not a url')).toBe(false)
   })
 
+  it('routes both Tripo regions and nothing else', () => {
+    expect(resolveUpstreamUrl('/v3/account/balance', '?a=1')).toBe(`${TRIPO_UPSTREAMS.ov}/v3/account/balance?a=1`)
+    expect(resolveUpstreamUrl('/cn/v3/account/balance')).toBe(`${TRIPO_UPSTREAMS.cn}/v3/account/balance`)
+    for (const p of ['/artifact', '/v3', '/cn/v4/x', '/x/v3/y', '', undefined]) expect(resolveUpstreamUrl(p), String(p)).toBeNull()
+  })
+
   it('is the single source for both proxies', () => {
     const root = path.resolve(__dirname, '..', '..')
     expect(fs.readFileSync(path.join(root, 'vite.config.js'), 'utf8')).toContain("from './proxy/artifactAllowlist.js'")
     expect(fs.readFileSync(path.join(root, 'proxy', 'tripo-worker.js'), 'utf8')).toContain("from './artifactAllowlist.js'")
+    expect(fs.readFileSync(path.join(root, 'vite.config.js'), 'utf8')).toContain("from './proxy/tripoUpstream.js'")
+    expect(fs.readFileSync(path.join(root, 'proxy', 'tripo-worker.js'), 'utf8')).toContain("from './tripoUpstream.js'")
     expect(fs.existsSync(path.join(root, 'proxy', 'wrangler.toml'))).toBe(true)
   })
 })

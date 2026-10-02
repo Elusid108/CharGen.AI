@@ -1,15 +1,16 @@
 /**
  * Cloudflare Worker: CORS-enabling relay for the Tripo v3 API and its artifact CDN.
  *
- *   /v3/*            -> https://openapi.tripo3d.ai/v3/*   (forwards the browser's Authorization header)
+ *   /v3/*            -> https://openapi.tripo3d.ai/v3/*   (international keys; forwards the browser's Authorization header)
+ *   /cn/v3/*         -> https://openapi.tripo3d.com/v3/*  (China-region keys)
  *   /artifact?url=   -> fetches an allow-listed Tripo CDN URL
  *
  * The Worker stores no API key. Deploy with `wrangler deploy` (see proxy/README.md) and paste the
  * Worker URL into CharGen.AI Settings -> Tripo proxy URL.
  */
 import { isAllowedArtifactUrl } from './artifactAllowlist.js'
+import { resolveUpstreamUrl } from './tripoUpstream.js'
 
-const UPSTREAM = 'https://openapi.tripo3d.ai'
 const FORWARD_HEADERS = ['authorization', 'content-type', 'accept']
 
 function allowedOrigin(origin, env) {
@@ -52,14 +53,15 @@ export default {
 
     const url = new URL(request.url)
 
-    if (url.pathname.startsWith('/v3/')) {
+    const upstreamUrl = resolveUpstreamUrl(url.pathname, url.search)
+    if (upstreamUrl) {
       if (!request.headers.get('Authorization')) return json(401, 'missing Authorization header', cors)
       const headers = new Headers()
       for (const name of FORWARD_HEADERS) {
         const value = request.headers.get(name)
         if (value) headers.set(name, value)
       }
-      const upstream = new Request(`${UPSTREAM}${url.pathname}${url.search}`, {
+      const upstream = new Request(upstreamUrl, {
         method: request.method,
         headers,
         body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,

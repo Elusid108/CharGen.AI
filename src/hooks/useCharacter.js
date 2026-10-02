@@ -28,7 +28,8 @@ import { emptyGeneratedModels, normalizeGeneratedModels } from '../utils/tripoMo
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
 import { fetchGeminiModels } from '../utils/models'
 import { generateCustomFields, generateMotionScript } from '../utils/api'
-import { configureTripoTransport, normalizeProxyUrl } from '../utils/tripo'
+import { configureTripoTransport, normalizeProxyUrl, normalizeTripoRegion } from '../utils/tripo'
+import { normalizeTripoKey } from '../utils/tripoKey'
 import { useToastStore } from './useToast'
 import { emptyChatState, normalizeChatState } from '../utils/chatPrompt'
 import { migrateProfileSlots, syncActiveProfileAlias } from '../utils/imageGeneration'
@@ -181,6 +182,8 @@ export const useCharacterStore = create((set, get) => ({
   apiKey: '',
   tripoApiKey: '',
   tripoProxyUrl: '',
+  /** 'ov' (openapi.tripo3d.ai) or 'cn' (openapi.tripo3d.com); detected when the key is saved. */
+  tripoRegion: 'ov',
   tripoBalance: null,
   tripoBusy: false,
   tripoBusyLabel: null,
@@ -209,19 +212,22 @@ export const useCharacterStore = create((set, get) => ({
   // Initialize - load API key and model prefs from IndexedDB
   initialize: async () => {
     try {
-      const [key, tripoKey, textModel, imageModel, tripoProxy] = await Promise.all([
+      const [key, tripoKey, textModel, imageModel, tripoProxy, tripoRegionSaved] = await Promise.all([
         getSetting('apiKey'),
         getSetting('tripoApiKey'),
         getSetting('selectedTextModel'),
         getSetting('selectedImageModel'),
         getSetting('tripoProxyUrl'),
+        getSetting('tripoRegion'),
       ])
       const updates = { settingsReady: true }
       if (key) updates.apiKey = key
       if (tripoKey) updates.tripoApiKey = tripoKey
       const proxyUrl = normalizeProxyUrl(tripoProxy)
-      configureTripoTransport({ proxyUrl })
+      const tripoRegion = normalizeTripoRegion(tripoRegionSaved)
+      configureTripoTransport({ proxyUrl, region: tripoRegion })
       updates.tripoProxyUrl = proxyUrl
+      updates.tripoRegion = tripoRegion
       if (textModel) updates.selectedTextModel = textModel
       if (imageModel) updates.selectedImageModel = imageModel
       set(updates)
@@ -242,7 +248,7 @@ export const useCharacterStore = create((set, get) => ({
   },
 
   setTripoApiKey: async (key) => {
-    const next = String(key || '').trim()
+    const next = normalizeTripoKey(key)
     set({ tripoApiKey: next, tripoBalance: next ? get().tripoBalance : null })
     try {
       await saveSetting('tripoApiKey', next)
@@ -252,6 +258,18 @@ export const useCharacterStore = create((set, get) => ({
   },
 
   setTripoBalance: (balance) => set({ tripoBalance: balance }),
+
+  setTripoRegion: async (region) => {
+    const next = normalizeTripoRegion(region)
+    configureTripoTransport({ region: next })
+    set({ tripoRegion: next })
+    try {
+      await saveSetting('tripoRegion', next)
+    } catch (e) {
+      console.error('Failed to save Tripo region:', e)
+    }
+    return next
+  },
 
   setTripoProxyUrl: async (url) => {
     const next = normalizeProxyUrl(url)

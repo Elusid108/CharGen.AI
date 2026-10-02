@@ -1,12 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { isAllowedArtifactHost } from './proxy/artifactAllowlist.js'
+import { TRIPO_UPSTREAMS } from './proxy/tripoUpstream.js'
 
+// One prefix per region; a Tripo key only works against its own region's host.
 const tripoProxy = {
   '/tripo-api': {
-    target: 'https://openapi.tripo3d.ai',
+    target: TRIPO_UPSTREAMS.ov,
     changeOrigin: true,
     rewrite: (path) => path.replace(/^\/tripo-api/, '/v3'),
+  },
+  '/tripo-cn-api': {
+    target: TRIPO_UPSTREAMS.cn,
+    changeOrigin: true,
+    rewrite: (path) => path.replace(/^\/tripo-cn-api/, '/v3'),
   },
 }
 

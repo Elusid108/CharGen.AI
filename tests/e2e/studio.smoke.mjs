@@ -74,12 +74,25 @@ function pollTask(id) {
   return { code: 0, data: { task_id: id, status: t.status, progress: t.progress, output: t.output, credits_consumed: t.credits_consumed } }
 }
 const CDN = 'https://tripo-data.rg1.data.tripo3d.com/mock'
+// Mock keys (not key-shaped, so the secret scan stays quiet). GOOD_KEY is International-only;
+// CN_KEY only works on the China host, which the Settings region detection must find.
+const GOOD_KEY = 'tripo-test-key'
+const CN_KEY = 'tripo-cn-key'
+let cnBalanceCalls = 0
+async function tripoCnRoute(route) {
+  const req = route.request()
+  const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+  if (req.headers().authorization !== `Bearer ${CN_KEY}`) return json({ code: 1002, message: 'Authentication failed' }, 401)
+  cnBalanceCalls += 1
+  return json({ code: 0, data: { balance: 77, frozen: 0 } })
+}
 let created = 0
 async function tripoRoute(route) {
   const req = route.request()
   const url = new URL(req.url())
   const path = url.pathname.replace(/^.*\/tripo-api/, '')
   const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+  if (req.headers().authorization !== `Bearer ${GOOD_KEY}`) return json({ code: 1002, message: 'Authentication failed' }, 401)
   if (path === '/account/balance') return json({ code: 0, data: { balance: 500, frozen: 0 } })
   if (path === '/files' || path === '/upload/sts') return json({ code: 0, data: { file_token: 'tok_' + (++created) } })
   if (path === '/tasks/list') {
@@ -137,15 +150,27 @@ try {
   })
   await page.route('**/generativelanguage.googleapis.com/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ models: [] }) }))
   await page.route('**/tripo-api/**', tripoRoute)
+  await page.route('**/tripo-cn-api/**', tripoCnRoute)
   await page.route('**/tripo-artifact**', artifactRoute)
   await page.route('https://openapi.tripo3d.ai/**', (r) => r.abort())
 
   await page.goto(BASE)
   await page.getByPlaceholder('Enter your Google AI API key...').fill('test-google-key')
   await page.getByPlaceholder('Enter your Google AI API key...').locator('xpath=following-sibling::button[1]').click()
-  await page.getByPlaceholder('Enter your Tripo API key...').fill('tripo-test-key')
-  await page.getByPlaceholder('Enter your Tripo API key...').locator('xpath=following-sibling::button[1]').click()
-  await page.getByText('Tripo API key saved').waitFor()
+  const tripoInput = page.getByPlaceholder('Enter your Tripo API key (tsk_...)')
+  const tripoSave = tripoInput.locator('xpath=following-sibling::button[1]')
+  await tripoInput.fill('bad-key')
+  await tripoSave.click()
+  await page.getByText('Tripo rejected this key in both').waitFor()
+  assert(!(await page.getByRole('button', { name: 'Refresh balance' }).isVisible()), 'rejected Tripo key is not saved')
+  await tripoInput.fill(`Bearer ${CN_KEY}`)
+  await tripoSave.click()
+  await page.getByText('Tripo key verified (China region)').waitFor()
+  assert(cnBalanceCalls >= 1, 'China-region key verified through /tripo-cn-api')
+  await tripoInput.fill(` ${GOOD_KEY}\n`)
+  await tripoSave.click()
+  await page.getByText('Tripo key verified (International region)').waitFor()
+  log('tripo key rejected, China key detected, International key verified')
   await page.locator('h3:has-text("Settings")').locator('xpath=..').locator('button').last().click().catch(() => {})
   await page.keyboard.press('Escape')
   // Close the settings modal via its X if still open.

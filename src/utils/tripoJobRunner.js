@@ -91,16 +91,21 @@ async function persistQuietly() {
   }
 }
 
-export async function refreshTripoBalanceSilent() {
+/** Throws the Tripo / transport error so the caller can show why the balance failed. */
+export async function refreshTripoBalance() {
   const key = store().tripoApiKey?.trim()
   if (!key) {
     store().setTripoBalance(null)
     return null
   }
+  const bal = await getTripoBalance(key)
+  store().setTripoBalance(bal)
+  return bal
+}
+
+export async function refreshTripoBalanceSilent() {
   try {
-    const bal = await getTripoBalance(key)
-    store().setTripoBalance(bal)
-    return bal
+    return await refreshTripoBalance()
   } catch {
     return null
   }

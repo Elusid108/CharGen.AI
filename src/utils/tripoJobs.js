@@ -54,7 +54,7 @@ import {
   toast,
 } from './tripoJobRunner'
 
-export { refreshTripoBalanceSilent, resumeInFlightTripoJobs, cancelAssetJob, isAssetBusy } from './tripoJobRunner'
+export { refreshTripoBalance, refreshTripoBalanceSilent, resumeInFlightTripoJobs, cancelAssetJob, isAssetBusy } from './tripoJobRunner'
 
 function resolveTarget({ slot, outfitId = null, assetId = null }) {
   const id = assetId || getModelRecord(store().generatedModels, slot, outfitId)?.id

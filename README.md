@@ -1,6 +1,6 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.12.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. The **3D Studio** turns the T-pose lock, mannequin, a wardrobe look, or a text prompt into a Tripo mesh, rigs and animates it, previews everything in a three.js viewport, and exports engine-ready bundles. **Motion Studio** compiles the same sheet into a timed, hardware-agnostic expression and gesture script for an animatronic rig.
+**v1.13.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. The **3D Studio** turns the T-pose lock, mannequin, a wardrobe look, or a text prompt into a Tripo mesh, rigs and animates it, previews everything in a three.js viewport, and exports engine-ready bundles. **Motion Studio** compiles the same sheet into a timed, hardware-agnostic expression and gesture script for an animatronic rig.
 
 ## Features
 
@@ -48,7 +48,7 @@ A top-level tab with an asset list, a **three.js viewport**, and an action rail.
 - **Jobs**: per-asset, up to three in parallel, cancellable, resumed after a reload through Tripo's task list. Results are downloaded into IndexedDB the moment a task finishes (Tripo links expire within minutes). Spent credits are read back from the task
 - **History** per source: the latest mesh is current; regenerating archives the previous version so you can restore or delete it
 
-Tripo has no browser CORS, so the app needs a relay. `npm run dev` / `npm run preview` provide one (`/tripo-api`, `/tripo-artifact`). For the GitHub Pages build deploy the Cloudflare Worker in [`proxy/`](proxy/README.md) and paste its URL into **Settings → Tripo proxy URL** (Test proxy checks it with a balance call). The Worker forwards your `Authorization` header per request and stores nothing.
+Tripo has no browser CORS, so the app needs a relay. `npm run dev` / `npm run preview` provide one (`/tripo-api`, `/tripo-cn-api`, `/tripo-artifact`). For the GitHub Pages build deploy the Cloudflare Worker in [`proxy/`](proxy/README.md) and paste its URL into **Settings → Tripo proxy URL** (Test proxy checks it with a balance call). The Worker forwards your `Authorization` header per request and stores nothing.
 
 ### Motion Studio (Stats → Motion)
 - **Personality → motion style**: OCEAN, archetype, social battery, speech style, gait, aura, tic, humor, dynamic, attachment, coping and more compile into numeric knobs (pacing, amplitude, gesture frequency, jitter, expressiveness, stillness) plus per-expression / per-gesture preferences (`src/data/options/motionBehavior.js`)
@@ -114,6 +114,8 @@ Tripo has no browser CORS, so the app needs a relay. `npm run dev` / `npm run pr
   - Settings lets you refresh the model list for your account
 - Optional **Tripo API key** from [Tripo](https://platform.tripo3d.ai) for the 3D Studio
   - Separate from Google. Stored locally. Used only when you confirm a job dialog (generate, rig, animate, convert, …)
+  - **Save** in Settings verifies the key with a free balance call and detects its region: International (`openapi.tripo3d.ai`) or China (`openapi.tripo3d.com`). A key works in only one of them, and Tripo answers the other with the same "authentication failed" as a bad key. A key both regions reject is not saved; pasted `Bearer ` / `TRIPO_API_KEY=` prefixes, quotes, and whitespace are stripped
+  - To check a key outside the browser, the official [`tripo-cli`](https://www.npmjs.com/package/tripo-cli) does the same detection: `npm i -g tripo-cli`, then `TRIPO_API_KEY=… tripo doctor` (reports region, reachability, and balance without spending credits)
   - Hosted (GitHub Pages) use needs the optional Cloudflare Worker proxy in `proxy/` — see the 3D Studio section
 
 ### Run locally (Windows)
@@ -172,7 +174,7 @@ Image, chat, library and the 3D viewport work on the hosted site. **Tripo jobs n
 
 - **100% client-side** — no CharGen backend, no tracking
 - API keys and library live in your browser
-- Google key is sent only to Google. Tripo key is sent only to Tripo (directly through the local dev proxy, or through a Worker you deploy yourself), and only when you confirm a 3D job dialog
+- Google key is sent only to Google. Tripo key is sent only to Tripo's own API hosts (through the local dev proxy, or through a Worker you deploy yourself): for free balance checks in Settings and when you confirm a 3D job dialog
 - No telemetry
 
 ## License
