@@ -17,14 +17,22 @@ import {
 } from '../data/options/priors'
 import { generateId } from '../utils/imageUtils'
 import { migrateOutfit } from '../utils/wardrobe'
-import { deleteSlotModels, getSetting, saveSetting } from '../utils/db'
+import { deleteSlotModels, getSetting, saveSetting, getRigProfile } from '../utils/db'
 import { emptyGeneratedModels, normalizeGeneratedModels } from '../utils/tripoModels'
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
 import { fetchGeminiModels } from '../utils/models'
-import { generateCustomFields } from '../utils/api'
+import { generateCustomFields, generateMotionScript } from '../utils/api'
 import { useToastStore } from './useToast'
 import { emptyChatState, normalizeChatState } from '../utils/chatPrompt'
 import { migrateProfileSlots, syncActiveProfileAlias } from '../utils/imageGeneration'
+import {
+  emptyMotionState,
+  normalizeMotionState,
+  buildLocalMotionScript,
+  validateAndClampMotionScript,
+  MAX_SAVED_SCRIPTS,
+} from '../utils/motionScript'
+import { findBuiltinRigProfile, normalizeRigProfile } from '../data/rigProfiles'
 
 function buildFieldById() {
   const map = {}
@@ -307,11 +315,12 @@ function newCharacterSessionFields() {
     wardrobe: [],
     chat: emptyChatState(),
     imagePrefs: emptyImagePrefs(),
+    motion: emptyMotionState(),
   }
 }
 
 /**
- * Normalize a library record (v1 lock migrate, v3 chat, v4 front/side/back slots).
+ * Normalize a library record (v1 lock migrate, v3 chat, v4 front/side/back slots, v10 motion).
  * @param {Record<string, unknown>} saved
  */
 export function migrateSavedCharacter(saved) {
@@ -325,6 +334,7 @@ export function migrateSavedCharacter(saved) {
       chatCanon: '',
       chat: emptyChatState(),
       imagePrefs: emptyImagePrefs({ randomizeSeed: false }),
+      motion: emptyMotionState(),
     }
   }
 
@@ -377,6 +387,7 @@ export function migrateSavedCharacter(saved) {
     chatCanon: typeof saved.chatCanon === 'string' ? saved.chatCanon : '',
     chat: normalizeChatState(saved.chat),
     imagePrefs: normalizeImagePrefs(saved.imagePrefs),
+    motion: normalizeMotionState(saved.motion),
   }
 }
 
@@ -394,6 +405,10 @@ export const useCharacterStore = create((set, get) => ({
   presentationMode: 'canonical',
   imagePrefs: emptyImagePrefs(),
   chat: emptyChatState(),
+  motion: emptyMotionState(),
+  /** Resolved rig profile object for motion.rigProfileId (null = reference rig). */
+  rigProfile: null,
+  isGeneratingMotion: false,
 
   // API Key
   apiKey: '',
@@ -793,6 +808,90 @@ export const useCharacterStore = create((set, get) => ({
     }
   },
 
+  // --- Motion Studio ---
+
+  setRigProfile: (profile) => {
+    const normalized = profile ? normalizeRigProfile(profile) : null
+    set((state) => ({
+      rigProfile: normalized,
+      motion: { ...normalizeMotionState(state.motion), rigProfileId: normalized?.id || '' },
+    }))
+  },
+
+  /** Resolve a rig id to a profile: built-in first, then the IndexedDB store. */
+  resolveRigProfile: async (rigProfileId) => {
+    const id = String(rigProfileId || '')
+    if (!id) { set({ rigProfile: null }); return null }
+    const builtin = findBuiltinRigProfile(id)
+    if (builtin) { set({ rigProfile: builtin }); return builtin }
+    try {
+      const row = await getRigProfile(id)
+      const profile = row ? normalizeRigProfile(row) : null
+      set({ rigProfile: profile })
+      return profile
+    } catch (e) {
+      console.error('resolveRigProfile failed:', e)
+      set({ rigProfile: null })
+      return null
+    }
+  },
+
+  /**
+   * Generate a motion script: Gemini when a key is present, local dice otherwise or on error.
+   * @param {{ scene?: string, sceneDirection?: string, sourceLine?: string, durationMs?: number, forceLocal?: boolean }} [opts]
+   */
+  generateMotion: async (opts = {}) => {
+    const { apiKey, selectedTextModel, character, characterId, rigProfile } = get()
+    const toast = useToastStore.getState().addToast
+    const hasKey = !!apiKey?.trim() && !opts.forceLocal
+    const base = { ...opts, characterId: characterId || '' }
+
+    const push = (script, warnings, source) => {
+      set((state) => {
+        const current = normalizeMotionState(state.motion)
+        return { motion: { ...current, scripts: [script, ...current.scripts].slice(0, MAX_SAVED_SCRIPTS) } }
+      })
+      return { script, warnings, source }
+    }
+
+    if (!hasKey) {
+      const script = buildLocalMotionScript(character, rigProfile, base)
+      return push(script, [], 'local')
+    }
+
+    set({ isGeneratingMotion: true })
+    try {
+      const { script, warnings } = await generateMotionScript(apiKey.trim(), character, rigProfile, {
+        ...base,
+        modelId: selectedTextModel,
+      })
+      return push(script, warnings, 'llm')
+    } catch (e) {
+      console.error('generateMotionScript failed:', e)
+      toast(`AI motion failed (${e instanceof Error ? e.message : 'unknown error'}). Used local generator.`, 'error')
+      const script = buildLocalMotionScript(character, rigProfile, base)
+      return push(script, [], 'local')
+    } finally {
+      set({ isGeneratingMotion: false })
+    }
+  },
+
+  setMotionScript: (index, script) =>
+    set((state) => {
+      const current = normalizeMotionState(state.motion)
+      const { script: clean } = validateAndClampMotionScript(script, state.rigProfile, { characterId: state.characterId || '' })
+      const scripts = [...current.scripts]
+      if (index >= 0 && index < scripts.length) scripts[index] = clean
+      else scripts.unshift(clean)
+      return { motion: { ...current, scripts: scripts.slice(0, MAX_SAVED_SCRIPTS) } }
+    }),
+
+  deleteMotionScript: (index) =>
+    set((state) => {
+      const current = normalizeMotionState(state.motion)
+      return { motion: { ...current, scripts: current.scripts.filter((_, i) => i !== index) } }
+    }),
+
   // Load a saved character
   loadCharacter: (saved) => {
     const migrated = migrateSavedCharacter(saved)
@@ -810,8 +909,10 @@ export const useCharacterStore = create((set, get) => ({
       presentationMode: migrated.presentationMode,
       imagePrefs: migrated.imagePrefs || emptyImagePrefs({ randomizeSeed: false }),
       chat: migrated.chat,
+      motion: migrated.motion,
       lockedFields,
     })
+    void get().resolveRigProfile(migrated.motion?.rigProfileId)
   },
 
   // Get current character as saveable object
@@ -831,6 +932,7 @@ export const useCharacterStore = create((set, get) => ({
       presentationMode: state.presentationMode === 'thirst' ? 'thirst' : 'canonical',
       imagePrefs: normalizeImagePrefs(state.imagePrefs),
       chat: normalizeChatState(state.chat),
+      motion: normalizeMotionState(state.motion),
       metadata: {
         tags: [],
         favorite: false,
@@ -853,6 +955,8 @@ export const useCharacterStore = create((set, get) => ({
       presentationMode: 'canonical',
       imagePrefs: emptyImagePrefs(),
       chat: emptyChatState(),
+      motion: emptyMotionState(),
+      rigProfile: null,
       lockedFields: {},
     })
   },

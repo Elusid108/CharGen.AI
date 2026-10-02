@@ -231,8 +231,8 @@ export const CHARACTER_SECTIONS = {
   },
 }
 
-/** Persist this on every library save. Bump when generatedImages, generatedModels, or attribute shape changes. */
-export const CHARACTER_SCHEMA_VERSION = 9
+/** Persist this on every library save. Bump when generatedImages, generatedModels, motion, or attribute shape changes. */
+export const CHARACTER_SCHEMA_VERSION = 10
 
 export function emptyGeneratedImages() {
   return {

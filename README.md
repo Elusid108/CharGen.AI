@@ -1,6 +1,6 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.9.2** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D.
+**v1.10.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D. **Motion Studio** compiles the same sheet into a timed, hardware-agnostic expression and gesture script for an animatronic rig.
 
 ## Features
 
@@ -17,7 +17,7 @@ Identity is a **front T-pose lock** (3:4, underwear). Side, back, profile, and m
 - **Generate All** order: front T-pose lock → side → back → profile → mannequin
 - **Slots**: front lock, side, back, profile (1:1), mannequin (relaxed dress-up pose)
 - **Canonical + Thirst profiles**: generating Profile creates both looks at once. Switch them on the Profile card. Canonical uses Default Outfit; Thirst uses Intimate Attire. Body locks stay underwear shots
-- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 9). Seed is `0`–`2147483647` with a slider, number field, and randomize
+- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 10). Seed is `0`–`2147483647` with a slider, number field, and randomize
 - **Wardrobe outfits** use the **mannequin** pose when one exists (T-pose lock only as fallback)
 - Native Gemini image models can take a reference; Imagen `predict` remains text-only (platform limit)
 
@@ -35,6 +35,15 @@ Tripo jobs **never** run from Generate All Images or from adding a wardrobe look
 - Failed jobs return frozen credits. Regenerating a mesh you dislike costs full price
 
 Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and file CDN (`/tripo-artifact`) because Tripo does not allow browser CORS. The GitHub Pages build has no proxy, so 3D will not reach Tripo from the hosted site.
+
+### Motion Studio (Stats → Motion)
+- **Personality → motion style**: OCEAN, archetype, social battery, speech style, gait, aura, tic, humor, dynamic, attachment, coping and more compile into numeric knobs (pacing, amplitude, gesture frequency, jitter, expressiveness, stillness) plus per-expression / per-gesture preferences (`src/data/options/motionBehavior.js`)
+- **Rig profiles** describe what a physical build can do — channels, supported expressions and gestures, timing limits — and are orthogonal to the character: the same character generates different motion on a 3-servo head than on a 12-servo body. Three built-in presets (head-only, bust, full body) plus a permissive reference rig; author your own as plain JSON in the editor (paste or upload, field-level validation, saved in the browser)
+- **Canonical vocabulary**: 22 expressions and 22 gestures in `src/data/motionVocabulary.js`. Every generated event uses one of these ids; a rig only says which subset it supports, so scripts stay portable across hardware
+- **Scenes**: idle, greeting, listening, speaking, alarmed, farewell — optional extra direction and a source line that adds speech-sync markers
+- **Two generators**: a local procedural generator that always works without a key, and a Gemini-directed one (`generateMotionScript`) that returns strict JSON. Both pass through `validateAndClampMotionScript`, which drops unknown or unsupported ids, clamps timing and intensity, and enforces the rig's minimum gaps and events-per-minute. AI failure falls back to local
+- **Timeline preview** with a scrubber, up to 12 scripts saved per character, and **Export JSON** (`*.motion.json`, `MOTION_SCRIPT_SCHEMA_VERSION` 1) ready to map onto servos, DMX, or a serial protocol later
+- No voice synthesis yet; `speechSync` events are a forward-compatible stub for it
 
 ### Image Analysis (Images → Stats)
 - **Upload any character image** via drag-and-drop or file picker
@@ -75,8 +84,9 @@ Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and f
 ### Character Library
 - **IndexedDB** — everything stays in the browser
 - **Stable character id** so Save updates the same library row
-- **schemaVersion 9** saves: dual profile slots, image prefs, line-item wardrobe, chat album, presence, timestamps, and **3D current + archive history** (`generatedModels`)
+- **schemaVersion 10** saves: dual profile slots, image prefs, line-item wardrobe, chat album, presence, timestamps, **3D current + archive history** (`generatedModels`), and **motion** (chosen rig id + saved motion scripts). Older saves load with an empty motion state
 - **Models** object store holds GLB / preview / animation / STL / FBX blobs in the browser; Download is optional
+- **rigProfiles** object store holds your custom rig JSON (`RIG_PROFILE_SCHEMA_VERSION` 1), separate from character saves
 - **JPEG compression** on generated, wardrobe, analysis, and chat images
 - Grid and list views with search, sort, and filter
 - Bulk download (ZIP) and JSON import/export
@@ -133,12 +143,13 @@ Image, chat, and library features work on the hosted site. **Tripo 3D needs the 
 - **React 18** + **Vite 6**
 - **TailwindCSS**
 - **Zustand**
-- **IndexedDB** (local characters, images, chat, 3D blobs, Google + Tripo keys)
+- **IndexedDB** (local characters, images, chat, 3D blobs, rig profiles, Google + Tripo keys)
 - **Google Gemini** for text, image analysis, chat, and native image (`generateContent`)
 - **Google Imagen** when selected (`predict`, no reference image)
 - **Tripo OpenAPI v3** for deliberate 3D generation (local Vite `/tripo-api` and `/tripo-artifact` proxies)
 - **Three.js** for in-app STL orbit preview
 - **model-viewer** for GLB orbit / touch / animation playback
+- **Vitest** for the motion layer (`npm test`): vocabulary, rig validation, style compiler, script generator / clamp, and the Gemini path with `fetch` stubbed
 - **JSZip** for bulk downloads
 - **Lucide React** for icons
 

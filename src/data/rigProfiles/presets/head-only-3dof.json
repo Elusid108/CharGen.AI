@@ -1,0 +1,41 @@
+{
+  "id": "preset_head_only_3dof",
+  "schemaVersion": 1,
+  "name": "Head only (3 DOF)",
+  "description": "A bust with pan/tilt neck and a jaw. No eyes, no arms. Good first animatronic.",
+  "channels": [
+    { "id": "neck_pan", "group": "head", "label": "Neck pan", "range": [-60, 60], "units": "deg", "restValue": 0, "maxVelocityPerSec": 180 },
+    { "id": "neck_tilt", "group": "head", "label": "Neck tilt", "range": [-30, 30], "units": "deg", "restValue": 0, "maxVelocityPerSec": 120 },
+    { "id": "jaw", "group": "face", "label": "Jaw", "range": [0, 100], "units": "percent", "restValue": 0, "maxVelocityPerSec": 400 }
+  ],
+  "expressionVocabulary": [
+    { "id": "neutral", "supported": true, "channelTargets": { "neck_tilt": 0, "jaw": 0 }, "intensityCapable": false, "minHoldMs": 300 },
+    { "id": "curious_tilt", "supported": true, "channelTargets": { "neck_tilt": 18 }, "intensityCapable": true, "minHoldMs": 500 },
+    { "id": "confused_tilt", "supported": true, "channelTargets": { "neck_tilt": -18 }, "intensityCapable": true, "minHoldMs": 500 },
+    { "id": "alert", "supported": true, "channelTargets": { "neck_tilt": -8, "jaw": 0 }, "intensityCapable": true, "minHoldMs": 400 },
+    { "id": "surprised", "supported": true, "channelTargets": { "neck_tilt": -12, "jaw": 60 }, "intensityCapable": true, "minHoldMs": 300 },
+    { "id": "laugh", "supported": true, "channelTargets": { "neck_tilt": -20, "jaw": 80 }, "intensityCapable": true, "minHoldMs": 600 },
+    { "id": "sleepy_droop", "supported": true, "channelTargets": { "neck_tilt": 25, "jaw": 10 }, "intensityCapable": true, "minHoldMs": 1200 },
+    { "id": "sad", "supported": true, "channelTargets": { "neck_tilt": 22, "jaw": 0 }, "intensityCapable": true, "minHoldMs": 800 }
+  ],
+  "gestureVocabulary": [
+    { "id": "nod", "supported": true, "durationMsHint": 700, "loopable": false, "category": "head" },
+    { "id": "shake_head", "supported": true, "durationMsHint": 900, "loopable": false, "category": "head" },
+    { "id": "look_around", "supported": true, "durationMsHint": 2400, "loopable": false, "category": "head" },
+    { "id": "look_at_listener", "supported": true, "durationMsHint": 500, "loopable": false, "category": "head" },
+    { "id": "look_away", "supported": true, "durationMsHint": 600, "loopable": false, "category": "head" },
+    { "id": "idle_sway", "supported": true, "durationMsHint": 4000, "loopable": true, "category": "ambient" },
+    { "id": "settle_still", "supported": true, "durationMsHint": 800, "loopable": false, "category": "ambient" },
+    { "id": "chin_up", "supported": true, "durationMsHint": 600, "loopable": false, "category": "head" },
+    { "id": "head_drop", "supported": true, "durationMsHint": 900, "loopable": false, "category": "head" },
+    { "id": "double_take", "supported": true, "durationMsHint": 1100, "loopable": false, "category": "head" },
+    { "id": "startle_flinch", "supported": true, "durationMsHint": 400, "loopable": false, "category": "head" }
+  ],
+  "constraints": {
+    "maxSimultaneousChannels": 3,
+    "maxEventsPerMinute": 40,
+    "minGapMsBetweenExpressionChanges": 500,
+    "minGapMsBetweenGestures": 700,
+    "speechSyncSupported": true
+  }
+}

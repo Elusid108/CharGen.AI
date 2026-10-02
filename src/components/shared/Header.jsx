@@ -10,6 +10,7 @@ const SPECIAL_TITLES = {
   wardrobe: 'Wardrobe & Outfits',
   library: 'Character Library',
   chat: 'Chat',
+  motion: 'Motion Studio',
 }
 
 export default function Header({ currentTab, onToggleSidebar, sidebarOpen }) {

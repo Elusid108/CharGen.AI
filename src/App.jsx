@@ -8,6 +8,7 @@ import ImageAnalysis from './components/ImageAnalysis/ImageAnalysis'
 import WardrobePanel from './components/WardrobeSystem/WardrobePanel'
 import LibraryPanel from './components/Library/LibraryPanel'
 import ChatPanel from './components/Chat/ChatPanel'
+import MotionPanel from './components/Motion/MotionPanel'
 import SettingsPanel from './components/shared/SettingsPanel'
 import ToastContainer from './components/shared/ToastContainer'
 import { useCharacterStore } from './hooks/useCharacter'
@@ -81,6 +82,7 @@ export default function App() {
                 {currentTab === 'generate' && <GenerationPanel />}
                 {currentTab === 'analyze' && <ImageAnalysis />}
                 {currentTab === 'wardrobe' && <WardrobePanel />}
+                {currentTab === 'motion' && <MotionPanel />}
                 {currentTab === 'library' && <LibraryPanel />}
               </div>
               {isFormTab && (

@@ -6,12 +6,13 @@
 import { modelBlobId, legacyModelBlobId, MODEL_FILE_KINDS } from './tripoModels'
 
 const DB_NAME = 'CharGenAI_DB'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 const STORES = {
   CHARACTERS: 'characters',
   SETTINGS: 'settings',
   MODELS: 'models',
+  RIG_PROFILES: 'rigProfiles',
 }
 
 function openDB() {
@@ -37,6 +38,11 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORES.MODELS)) {
         const modelStore = db.createObjectStore(STORES.MODELS, { keyPath: 'id' })
         modelStore.createIndex('characterId', 'characterId', { unique: false })
+      }
+
+      if (!db.objectStoreNames.contains(STORES.RIG_PROFILES)) {
+        const rigStore = db.createObjectStore(STORES.RIG_PROFILES, { keyPath: 'id' })
+        rigStore.createIndex('updatedAt', 'updatedAt', { unique: false })
       }
     }
   })
@@ -190,6 +196,37 @@ export async function deleteCharacterModels(characterId) {
   const tx = db.transaction([STORES.MODELS], 'readwrite')
   const store = tx.objectStore(STORES.MODELS)
   await Promise.all(rows.map((row) => idbReq(store.delete(row.id))))
+}
+
+// --- Rig profiles (user-authored animatronic builds) ---
+
+export async function saveRigProfile(profile) {
+  const db = await openDB()
+  const record = { ...profile, updatedAt: Date.now() }
+  const tx = db.transaction([STORES.RIG_PROFILES], 'readwrite')
+  await idbReq(tx.objectStore(STORES.RIG_PROFILES).put(record))
+  return record.id
+}
+
+export async function getRigProfile(id) {
+  if (!id) return null
+  const db = await openDB()
+  const tx = db.transaction([STORES.RIG_PROFILES], 'readonly')
+  const row = await idbReq(tx.objectStore(STORES.RIG_PROFILES).get(id))
+  return row || null
+}
+
+export async function getAllRigProfiles() {
+  const db = await openDB()
+  const tx = db.transaction([STORES.RIG_PROFILES], 'readonly')
+  const rows = await idbReq(tx.objectStore(STORES.RIG_PROFILES).index('updatedAt').getAll())
+  return Array.isArray(rows) ? rows.reverse() : []
+}
+
+export async function deleteRigProfile(id) {
+  const db = await openDB()
+  const tx = db.transaction([STORES.RIG_PROFILES], 'readwrite')
+  await idbReq(tx.objectStore(STORES.RIG_PROFILES).delete(id))
 }
 
 // --- Settings ---

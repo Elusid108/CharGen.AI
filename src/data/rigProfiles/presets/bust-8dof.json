@@ -1,0 +1,60 @@
+{
+  "id": "preset_bust_8dof",
+  "schemaVersion": 1,
+  "name": "Bust (8 DOF)",
+  "description": "Head pan/tilt/roll, jaw, eye pan/tilt, eyelids, brows. Expressive face, no arms or torso.",
+  "channels": [
+    { "id": "neck_pan", "group": "head", "label": "Neck pan", "range": [-70, 70], "units": "deg", "restValue": 0, "maxVelocityPerSec": 200 },
+    { "id": "neck_tilt", "group": "head", "label": "Neck tilt", "range": [-35, 35], "units": "deg", "restValue": 0, "maxVelocityPerSec": 140 },
+    { "id": "neck_roll", "group": "head", "label": "Neck roll", "range": [-25, 25], "units": "deg", "restValue": 0, "maxVelocityPerSec": 120 },
+    { "id": "jaw", "group": "face", "label": "Jaw", "range": [0, 100], "units": "percent", "restValue": 0, "maxVelocityPerSec": 500 },
+    { "id": "eyes_pan", "group": "face", "label": "Eyes pan", "range": [-40, 40], "units": "deg", "restValue": 0, "maxVelocityPerSec": 600 },
+    { "id": "eyes_tilt", "group": "face", "label": "Eyes tilt", "range": [-25, 25], "units": "deg", "restValue": 0, "maxVelocityPerSec": 500 },
+    { "id": "eyelids", "group": "face", "label": "Eyelids (open)", "range": [0, 100], "units": "percent", "restValue": 85, "maxVelocityPerSec": 900 },
+    { "id": "brows", "group": "face", "label": "Brows (raise)", "range": [-100, 100], "units": "percent", "restValue": 0, "maxVelocityPerSec": 400 }
+  ],
+  "expressionVocabulary": [
+    { "id": "neutral", "supported": true, "channelTargets": { "neck_tilt": 0, "neck_roll": 0, "jaw": 0, "eyelids": 85, "brows": 0 }, "intensityCapable": false, "minHoldMs": 300 },
+    { "id": "smile_soft", "supported": true, "channelTargets": { "eyelids": 70, "brows": 10, "jaw": 5 }, "intensityCapable": true, "minHoldMs": 500 },
+    { "id": "smile_broad", "supported": true, "channelTargets": { "eyelids": 60, "brows": 25, "jaw": 30 }, "intensityCapable": true, "minHoldMs": 500 },
+    { "id": "laugh", "supported": true, "channelTargets": { "neck_tilt": -20, "eyelids": 40, "brows": 30, "jaw": 80 }, "intensityCapable": true, "minHoldMs": 600 },
+    { "id": "curious_tilt", "supported": true, "channelTargets": { "neck_roll": 15, "brows": 35, "eyelids": 95 }, "intensityCapable": true, "minHoldMs": 500 },
+    { "id": "confused_tilt", "supported": true, "channelTargets": { "neck_roll": -15, "brows": -20, "jaw": 15 }, "intensityCapable": true, "minHoldMs": 500 },
+    { "id": "alert", "supported": true, "channelTargets": { "neck_tilt": -8, "eyelids": 100, "brows": 40 }, "intensityCapable": true, "minHoldMs": 400 },
+    { "id": "concerned", "supported": true, "channelTargets": { "brows": 55, "eyelids": 80, "neck_tilt": 6 }, "intensityCapable": true, "minHoldMs": 600 },
+    { "id": "skeptical_squint", "supported": true, "channelTargets": { "brows": -45, "eyelids": 45, "neck_roll": 8 }, "intensityCapable": true, "minHoldMs": 600 },
+    { "id": "surprised", "supported": true, "channelTargets": { "brows": 90, "eyelids": 100, "jaw": 60, "neck_tilt": -12 }, "intensityCapable": true, "minHoldMs": 300 },
+    { "id": "recoil", "supported": true, "channelTargets": { "neck_tilt": -25, "eyelids": 50, "brows": -40 }, "intensityCapable": true, "minHoldMs": 400 },
+    { "id": "sad", "supported": true, "channelTargets": { "brows": 40, "eyelids": 55, "neck_tilt": 20, "eyes_tilt": -15 }, "intensityCapable": true, "minHoldMs": 800 },
+    { "id": "angry_narrow", "supported": true, "channelTargets": { "brows": -90, "eyelids": 50, "jaw": 10, "neck_tilt": -5 }, "intensityCapable": true, "minHoldMs": 600 },
+    { "id": "sleepy_droop", "supported": true, "channelTargets": { "eyelids": 25, "neck_tilt": 25, "brows": -10 }, "intensityCapable": true, "minHoldMs": 1200 },
+    { "id": "blink_slow", "supported": true, "channelTargets": { "eyelids": 0 }, "intensityCapable": false, "minHoldMs": 250 },
+    { "id": "thinking", "supported": true, "channelTargets": { "eyes_pan": 25, "eyes_tilt": 20, "brows": 15, "jaw": 8 }, "intensityCapable": true, "minHoldMs": 700 },
+    { "id": "fear", "supported": true, "channelTargets": { "brows": 80, "eyelids": 100, "jaw": 35, "neck_tilt": -18 }, "intensityCapable": true, "minHoldMs": 400 },
+    { "id": "disgust", "supported": true, "channelTargets": { "brows": -50, "eyelids": 55, "neck_tilt": -10, "neck_roll": -6 }, "intensityCapable": true, "minHoldMs": 500 },
+    { "id": "contempt", "supported": true, "channelTargets": { "brows": -20, "eyelids": 60, "neck_tilt": -10 }, "intensityCapable": true, "minHoldMs": 600 }
+  ],
+  "gestureVocabulary": [
+    { "id": "nod", "supported": true, "durationMsHint": 700, "loopable": false, "category": "head" },
+    { "id": "shake_head", "supported": true, "durationMsHint": 900, "loopable": false, "category": "head" },
+    { "id": "look_around", "supported": true, "durationMsHint": 2400, "loopable": false, "category": "gaze" },
+    { "id": "look_at_listener", "supported": true, "durationMsHint": 500, "loopable": false, "category": "gaze" },
+    { "id": "look_away", "supported": true, "durationMsHint": 600, "loopable": false, "category": "gaze" },
+    { "id": "idle_sway", "supported": true, "durationMsHint": 4000, "loopable": true, "category": "ambient" },
+    { "id": "breathe", "supported": true, "durationMsHint": 3500, "loopable": true, "category": "ambient" },
+    { "id": "settle_still", "supported": true, "durationMsHint": 800, "loopable": false, "category": "ambient" },
+    { "id": "chin_up", "supported": true, "durationMsHint": 600, "loopable": false, "category": "head" },
+    { "id": "head_drop", "supported": true, "durationMsHint": 900, "loopable": false, "category": "head" },
+    { "id": "double_take", "supported": true, "durationMsHint": 1100, "loopable": false, "category": "head" },
+    { "id": "startle_flinch", "supported": true, "durationMsHint": 400, "loopable": false, "category": "head" },
+    { "id": "lean_in", "supported": true, "durationMsHint": 800, "loopable": false, "category": "head" },
+    { "id": "lean_back", "supported": true, "durationMsHint": 800, "loopable": false, "category": "head" }
+  ],
+  "constraints": {
+    "maxSimultaneousChannels": 6,
+    "maxEventsPerMinute": 70,
+    "minGapMsBetweenExpressionChanges": 350,
+    "minGapMsBetweenGestures": 500,
+    "speechSyncSupported": true
+  }
+}

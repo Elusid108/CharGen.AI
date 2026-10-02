@@ -2,7 +2,7 @@ import React from 'react'
 import {
   Fingerprint, Dumbbell, ScanFace, Footprints, Brain, BookOpen,
   MessagesSquare, Flame, Sparkles, Upload, Shirt, BookMarked,
-  Settings, Dice5, Save, ChevronLeft, Dna, Loader2
+  Settings, Dice5, Save, ChevronLeft, Dna, Loader2, Activity
 } from 'lucide-react'
 import { APP_VERSION } from '../../appVersion'
 import { CHARACTER_SECTIONS } from '../../data/schemas'
@@ -20,6 +20,7 @@ const SPECIAL_TABS = [
   { id: 'generate', icon: Sparkles, label: 'Generation Studio', color: 'purple' },
   { id: 'chat', icon: MessagesSquare, label: 'Chat', color: 'cyan' },
   { id: 'wardrobe', icon: Shirt, label: 'Wardrobe', color: 'amber' },
+  { id: 'motion', icon: Activity, label: 'Motion Studio', color: 'orange' },
   { id: 'library', icon: BookMarked, label: 'Library', color: 'emerald' },
 ]
 
@@ -129,6 +130,7 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
             amber: isActive ? 'bg-slate-800/80 text-amber-400 border-amber-500' : '',
             emerald: isActive ? 'bg-slate-800/80 text-emerald-400 border-emerald-500' : '',
             cyan: isActive ? 'bg-slate-800/80 text-cyan-400 border-cyan-500' : '',
+            orange: isActive ? 'bg-slate-800/80 text-orange-400 border-orange-500' : '',
           }
           return (
             <button

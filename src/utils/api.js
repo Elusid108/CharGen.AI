@@ -14,6 +14,13 @@ import {
 import { selectDisplay } from './selectDisplay'
 import { compileImageLine } from './compileCharacter'
 import { optionLabels } from '../data/options'
+import {
+  buildMotionBible,
+  validateAndClampMotionScript,
+  clampScriptDuration,
+  MOTION_SCRIPT_SCHEMA_VERSION,
+} from './motionScript'
+import { DEFAULT_RIG_PROFILE, supportedExpressionIds, supportedGestureIds } from '../data/rigProfiles'
 
 // --- Text Generation (Gemini) ---
 
@@ -866,6 +873,68 @@ ${JSON.stringify(bible, null, 2)}`
     throw new Error('Model did not return a backstory')
   }
   return { backstory, chatCanon }
+}
+
+// --- Motion Script Generation ---
+
+export function buildMotionScriptSystemPrompt(rigProfile, durationMs) {
+  const rig = rigProfile || DEFAULT_RIG_PROFILE
+  const c = rig.constraints || {}
+  const maxEvents = Math.max(1, Math.ceil(((c.maxEventsPerMinute || 90) * durationMs) / 60000))
+  return `You direct the physical performance of an animatronic character. You receive a motion bible (personality, motion style, scene, rig limits) and return a timed motion script. Output JSON only.
+
+Rules:
+- Return exactly { "events": [ { "tMs": int, "track": "expression"|"gesture"|"speechSync", "id": string, "intensity": 0..1, "holdMs": int } ] }.
+- "id" MUST be one of the allowed ids listed below for its track. Never invent ids. Unknown ids are discarded.
+- tMs are integers in ascending order within [0, ${durationMs}]. Start at 0 with a rest expression and, if available, an ambient loop gesture.
+- Expressions change at least ${c.minGapMsBetweenExpressionChanges ?? 300}ms apart. Gestures start at least ${c.minGapMsBetweenGestures ?? 450}ms apart. Expression and gesture may overlap.
+- Use at most ${maxEvents} expression/gesture events in total. Fewer, well-timed events beat many.
+- Let the motion style multipliers shape density and size: low expressiveness or amplitude means fewer, smaller (lower intensity) events and longer holds; high values mean the opposite.
+- Physicalize the personality notes and the scene direction. Do not narrate; do not add prose.
+${c.speechSyncSupported === false ? '- Do NOT emit speechSync events.' : '- If a source line is given, bracket it with speechSync "line_start" at 0 and "line_end" at the estimated end of speech, and place "emphasis" markers on the 1-3 most important words; otherwise emit no speechSync events.'}
+
+Allowed expression ids: ${supportedExpressionIds(rig).join(', ')}
+Allowed gesture ids: ${supportedGestureIds(rig).join(', ')}
+Allowed speechSync ids: line_start, line_end, emphasis, pause, breath`
+}
+
+/**
+ * LLM motion script, mirroring generateBackstory: compact bible in, strict JSON out,
+ * then clamped against the rig. Throws if nothing usable survives so callers can fall
+ * back to buildLocalMotionScript.
+ * @param {string} apiKey
+ * @param {Record<string, unknown>} character
+ * @param {object|null} rigProfile
+ * @param {{ scene?: string, sceneDirection?: string, sourceLine?: string, durationMs?: number, characterId?: string, modelId?: string }} [options]
+ * @returns {Promise<{ script: object, warnings: string[] }>}
+ */
+export async function generateMotionScript(apiKey, character, rigProfile, options = {}) {
+  const { scene = 'idle', sceneDirection = '', sourceLine = '', characterId = '', modelId } = options
+  const durationMs = clampScriptDuration(options.durationMs)
+  const rig = rigProfile || DEFAULT_RIG_PROFILE
+  const bible = buildMotionBible(character, rig, { scene, sceneDirection, sourceLine, durationMs })
+
+  const systemInstruction = buildMotionScriptSystemPrompt(rig, durationMs)
+  const userPrompt = `Motion bible (this is the whole brief; do not invent biography):
+${JSON.stringify(bible, null, 2)}`
+
+  const raw = await generateText(apiKey, systemInstruction, userPrompt, {
+    temperature: 0.9,
+    ...(modelId ? { modelId } : {}),
+  })
+  const parsed = parseJsonFromModelText(raw)
+  const draft = {
+    schemaVersion: MOTION_SCRIPT_SCHEMA_VERSION,
+    characterId,
+    rigProfileId: rig.id,
+    meta: { scene, sourceLine, generatedAt: Date.now(), source: 'llm', durationMs },
+    events: Array.isArray(parsed?.events) ? parsed.events : [],
+  }
+  const { script, warnings } = validateAndClampMotionScript(draft, rigProfile, { characterId })
+  if (!script.events.length) {
+    throw new Error('Model did not return a usable motion script')
+  }
+  return { script, warnings }
 }
 
 // --- Image Analysis Prompt ---
