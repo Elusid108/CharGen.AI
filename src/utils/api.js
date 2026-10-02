@@ -789,8 +789,8 @@ export function buildChatPhotoPrompt(character, picDescription, styleModifiers =
 // --- Backstory Generation ---
 
 export async function generateNarrativeHooks(apiKey, character, options = {}) {
-  const { tone = 'Simple', genre = 'High Fantasy', lensId = 'wanted', modelId } = options
-  const bible = buildStoryBible(character, { includeAdult: includeAdultInStoryBible(tone) })
+  const { tone = 'Simple', genre = 'High Fantasy', lensId = 'wanted', modelId, ledger = null } = options
+  const bible = buildStoryBible(character, { includeAdult: includeAdultInStoryBible(tone), ledger })
   const lens = LENS_INSTRUCTIONS[lensId] || LENS_INSTRUCTIONS.wanted
 
   const systemInstruction = `You invent three distinct story hooks for one character. Output JSON only.
@@ -800,7 +800,8 @@ Rules:
 - Each hook is ONE sentence. No titles, no numbering inside the strings.
 - The three hooks must be different angles, not paraphrases.
 - Do not name MBTI, Enneagram, alignment, or OCEAN.
-- Do not start with "Born in", "From a young age", "But everything changed when", or "They were always".`
+- Do not start with "Born in", "From a young age", "But everything changed when", or "They were always".
+- If life_ledger is present it is canon. Draw at most two events into the piece; never recount them in order; never open with a date or an age; the wound/want spine still rules.`
 
   const userPrompt = `Genre: ${genre}. Tone: ${tone}.
 Lens (apply this flavor to the hooks): ${lens}
@@ -830,9 +831,10 @@ export async function generateBackstory(apiKey, character, options = {}) {
     lensId = 'wanted',
     selectedHook = '',
     modelId,
+    ledger = null,
   } = options
 
-  const bible = buildStoryBible(character, { includeAdult: includeAdultInStoryBible(tone) })
+  const bible = buildStoryBible(character, { includeAdult: includeAdultInStoryBible(tone), ledger })
   const lens = LENS_INSTRUCTIONS[lensId] || LENS_INSTRUCTIONS.wanted
 
   const systemInstruction = `You are a fiction writer. You receive a short story bible, not a complete stat block.
@@ -848,7 +850,9 @@ Never name MBTI, Enneagram, alignment labels, or OCEAN. Demonstrate interiority 
 Output a single JSON object only, no markdown:
 { "backstory": "<prose>", "chatCanon": "<exactly three first-person sentences this character would own as their truth>" }
 
-chatCanon must be first person, specific, and usable as a chatbot persona. No trait labels.`
+chatCanon must be first person, specific, and usable as a chatbot persona. No trait labels.
+
+If life_ledger is present it is canon. Draw at most two events into the piece; never recount them in order; never open with a date or an age; the wound/want spine still rules.`
 
   const hookBlock = selectedHook
     ? `Write from this chosen hook (do not list it; enact it):\n${selectedHook}\n`

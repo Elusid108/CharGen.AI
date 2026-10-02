@@ -4,6 +4,7 @@
 
 import { selectDisplay } from './selectDisplay'
 import { compileChatTrait } from './compileCharacter'
+import { renderLedgerForPrompt } from './ledger'
 
 function firstNonEmpty(...vals) {
   for (const v of vals) {
@@ -112,12 +113,12 @@ export function includeAdultInStoryBible(tone) {
 /**
  * Compact bible: wound + want, not the psychology dump (that lives in chat compile).
  * @param {Record<string, unknown>} character
- * @param {{ includeAdult?: boolean }} [options]
+ * @param {{ includeAdult?: boolean, ledger?: { events?: object[] } | null }} [options]
  * @returns {Record<string, string>}
  */
 export function buildStoryBible(character, options = {}) {
   const c = character || {}
-  const { includeAdult = false } = options
+  const { includeAdult = false, ledger = null } = options
   const bible = {
     name: firstNonEmpty(c.name, 'Unnamed'),
     species: selectDisplay(c, 'species'),
@@ -144,6 +145,8 @@ export function buildStoryBible(character, options = {}) {
     if (kinks) bible.kinks = kinks
     if (intimacy) bible.intimacy_style = intimacy
   }
+
+  bible.life_ledger = renderLedgerForPrompt(ledger)
 
   const compact = {}
   Object.entries(bible).forEach(([k, v]) => {

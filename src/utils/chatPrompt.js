@@ -2,6 +2,7 @@
  * Compile a texting-roleplay system prompt from the current character.
  */
 
+import { renderLedgerForPrompt } from './ledger'
 import { selectDisplay } from './selectDisplay'
 import {
   compileBehavior,
@@ -200,6 +201,7 @@ export function composeChatSystemPrompt({
   situation = '',
   wardrobeBlock = '',
   photoBlock = '',
+  ledger = null,
 }) {
   const c = character || {}
   const s = normalizeChatState({ settings }).settings
@@ -264,6 +266,13 @@ export function composeChatSystemPrompt({
 
   const adult = s.heat === 'filthy' ? adultBlock(c) : ''
 
+  const ledgerText = renderLedgerForPrompt(ledger)
+  const historyBlock = ledgerText
+    ? `[HISTORY — SUBTEXT]
+Things that happened to you. They are why the sheet says what it says. Reference one only when it would naturally surface; never list them, never recite ages.
+${ledgerText}`
+    : ''
+
   const look = visualLine
     ? `[LOOK]\nYou look like: ${visualLine}. Do not volunteer a photo of it.`
     : ''
@@ -321,6 +330,8 @@ ${behaviorBlock}
 
 [INTERIOR — SUBTEXT]
 ${interior || '- Have an inner life. Do not recap a wiki.'}
+
+${historyBlock}
 
 [CANON — YOUR OWN WORDS]
 ${canon}

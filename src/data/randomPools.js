@@ -2,6 +2,8 @@
  * Randomization helpers (names and dice). Select catalogs live in src/data/options.
  */
 
+import { mathRng } from '../utils/rng'
+
 export const randomNames = {
   first: [
     'Kael', 'Mara', 'Thorne', 'Elara', 'Jax', 'Vesper', 'Silas', 'Lyra', 'Orion', 'Nyx',
@@ -41,14 +43,14 @@ export const randomNames = {
   ],
 }
 
-export function randomFrom(array) {
-  return array[Math.floor(Math.random() * array.length)]
+export function randomFrom(array, rng = mathRng) {
+  return array[Math.floor(rng.next() * array.length)]
 }
 
-export function randomRange(min = 0, max = 100) {
-  return Math.floor(Math.random() * (max - min + 1)) + min
+export function randomRange(min = 0, max = 100, rng = mathRng) {
+  return Math.floor(rng.next() * (max - min + 1)) + min
 }
 
-export function randomName() {
-  return `${randomFrom(randomNames.first)} ${randomFrom(randomNames.last)}`
+export function randomName(rng = mathRng) {
+  return `${randomFrom(randomNames.first, rng)} ${randomFrom(randomNames.last, rng)}`
 }

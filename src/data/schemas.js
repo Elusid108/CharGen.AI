@@ -231,8 +231,8 @@ export const CHARACTER_SECTIONS = {
   },
 }
 
-/** Persist this on every library save. Bump when generatedImages, generatedModels, motion, or attribute shape changes. */
-export const CHARACTER_SCHEMA_VERSION = 10
+/** Persist this on every library save. Bump when generatedImages, generatedModels, motion, ledger, or attribute shape changes. */
+export const CHARACTER_SCHEMA_VERSION = 11
 
 export function emptyGeneratedImages() {
   return {
@@ -300,16 +300,16 @@ export function clampImageSeed(value) {
 }
 
 /**
- * @param {{ randomizeSeed?: boolean }} [opts]
+ * @param {{ randomizeSeed?: boolean, seed?: number }} [opts] — an explicit finite `seed` wins
  */
 export function emptyImagePrefs(opts = {}) {
-  const { randomizeSeed = true } = opts
+  const { randomizeSeed = true, seed } = opts
   return {
     artStyle: DEFAULT_ART_STYLE,
     lighting: DEFAULT_LIGHTING,
     mood: DEFAULT_MOOD,
     exclude: '',
-    seed: randomizeSeed ? randomImageSeed() : 0,
+    seed: Number.isFinite(Number(seed)) ? clampImageSeed(seed) : randomizeSeed ? randomImageSeed() : 0,
   }
 }
 

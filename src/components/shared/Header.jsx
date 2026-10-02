@@ -1,6 +1,6 @@
 import React from 'react'
 import { Menu, Trash2 } from 'lucide-react'
-import { CHARACTER_SECTIONS } from '../../data/schemas'
+import { SHEET_TABS } from '../../data/sheetTabs'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 
@@ -18,7 +18,7 @@ export default function Header({ currentTab, onToggleSidebar, sidebarOpen }) {
   const characterName = useCharacterStore(s => s.character.name)
   const addToast = useToastStore(s => s.addToast)
 
-  const title = CHARACTER_SECTIONS[currentTab]?.label || SPECIAL_TITLES[currentTab] || 'CharGen.AI'
+  const title = SHEET_TABS.find((t) => t.id === currentTab)?.label || SPECIAL_TITLES[currentTab] || 'CharGen.AI'
 
   const handleReset = () => {
     if (window.confirm('Start a new character? Unsaved data will be lost.')) {

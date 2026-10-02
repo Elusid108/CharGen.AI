@@ -1,20 +1,26 @@
 import { create } from 'zustand'
 import { getDefaultCharacter, CHARACTER_SECTIONS, CHARACTER_SCHEMA_VERSION, emptyGeneratedImages, emptyImagePrefs, normalizeImagePrefs } from '../data/schemas'
-import { randomRange, randomName } from '../data/randomPools'
-import { normalizeSelectOptions, pickWeightedFrom } from '../data/options'
+import { correlateGenderExpression, correlateRomanticFromSexual } from '../data/options/priors'
 import {
-  genreWeightMultiplier,
-  SILHOUETTE_TEMPLATES,
-  extraversionToBattery,
-  correlateChestAnatomy,
-  correlateGenderExpression,
-  correlateTransitionNote,
-  correlateRomanticFromSexual,
-  speciesSpecialFeatureWeight,
-  HAIRLESS_SPECIES,
-  OFTEN_HAIRLESS_SPECIES,
-  apparentAgeFromChronological,
-} from '../data/options/priors'
+  buildLocalRandomizedCharacter,
+  rollSection,
+  mergeCharacterWithSelectCleanup,
+  clearStaleCustomTexts,
+  collectLlmTextFieldIds,
+  mergeLlmTextPatch,
+  pickLockedFromCharacter,
+  effectiveLockedFields,
+} from '../utils/characterRoll'
+import { createRng, hashSeed, randomSeed, clampSeed, SEED_MAX } from '../utils/rng'
+import { deriveFromOcean } from '../data/options/oceanDerivation'
+import {
+  emptyLedger,
+  normalizeLedger,
+  buildLedger,
+  applyLedgerEffects,
+  rerollLedgerEvent as rerollLedgerEventPure,
+  addLedgerEvent as addLedgerEventPure,
+} from '../utils/ledger'
 import { generateId } from '../utils/imageUtils'
 import { migrateOutfit } from '../utils/wardrobe'
 import { deleteSlotModels, getSetting, saveSetting, getRigProfile } from '../utils/db'
@@ -34,278 +40,12 @@ import {
 } from '../utils/motionScript'
 import { findBuiltinRigProfile, normalizeRigProfile } from '../data/rigProfiles'
 
-function buildFieldById() {
-  const map = {}
-  Object.values(CHARACTER_SECTIONS).forEach((section) => {
-    section.fields.forEach((field) => {
-      map[field.id] = field
-    })
-  })
-  return map
-}
-
-const FIELD_BY_ID = buildFieldById()
-
-function optionWeightForField(field, option, character) {
-  const genre = character?.genre || 'Mixed'
-  const species = character?.species
-  let w = option.weight ?? 1
-  w *= genreWeightMultiplier(genre, field.id, option.id)
-  if (field.id === 'special_features' && species) {
-    w *= speciesSpecialFeatureWeight(species, option.id)
-  }
-  if (species === 'Human' || species === 'Elf' || species === 'Dwarf') {
-    if (field.id === 'skin_tone' && (option.id === 'Scaled' || option.id === 'Furred')) w *= 0.08
-    if (
-      field.id === 'skin_texture'
-      && (option.id === 'Scaled' || option.id === 'Furred' || option.id === 'Chitin' || option.id === 'Crystalline' || option.id === 'Bark-like')
-    ) {
-      w *= 0.1
-    }
-  }
-  return w
-}
-
-function randomSelectValue(field, character = {}) {
-  const options = normalizeSelectOptions(field.options)
-  return pickWeightedFrom(options, (o) => optionWeightForField(field, o, character))
-}
-
-function pickLockedFromCharacter(character, lockedFields) {
-  const out = {}
-  Object.keys(lockedFields).forEach((id) => {
-    if (lockedFields[id]) out[id] = character[id]
-  })
-  return out
-}
-
-/**
- * Random value for one schema field; returns undefined if this field is not auto-randomized.
- * @param {{ skipLocalTextForLlm?: boolean }} [opts] — when true, leave `name` empty for hybrid LLM fill
- */
-function randomValueForField(field, opts = {}) {
-  const { skipLocalTextForLlm = false, character = {} } = opts
-  switch (field.type) {
-    case 'select':
-      return randomSelectValue(field, character)
-    case 'range':
-      return randomRange(field.min ?? 0, field.max ?? 100)
-    case 'number':
-      if (field.id === 'age') return randomRange(18, 80)
-      if (field.id === 'aging') {
-        if (character.age !== '' && character.age != null) {
-          return apparentAgeFromChronological(character.age, character.species)
-        }
-        const lo = field.min ?? 1
-        const hi = field.max ?? 120
-        return randomRange(lo, hi)
-      }
-      return undefined
-    case 'text':
-      if (field.id === 'name') {
-        if (skipLocalTextForLlm) return undefined
-        return randomName()
-      }
-      return undefined
-    default:
-      return undefined
-  }
-}
-
-const REGION_FIELD_IDS = [
-  'forearms', 'upper_arms', 'shoulders', 'neck', 'chest_size',
-  'abs', 'back', 'glutes', 'upper_legs', 'lower_legs',
-]
-
-function applyRandomizeCorrelations(next, lockedFields, hints = {}) {
-  const locked = (id) => !!lockedFields[id]
-  const out = { ...next }
-  const rolledSet = hints.rolled ? new Set(hints.rolled) : null
-  const touched = (...ids) => !rolledSet || ids.some((id) => rolledSet.has(id))
-
-  if (touched('aging', 'age') && !locked('aging') && out.age !== '' && out.age != null) {
-    out.aging = apparentAgeFromChronological(out.age, out.species)
-  }
-
-  if (touched('battery', 'ocean_e') && !locked('battery') && out.ocean_e != null && out.ocean_e !== '') {
-    out.battery = extraversionToBattery(out.ocean_e)
-  }
-
-  const template = SILHOUETTE_TEMPLATES[out.silhouette]
-  if (
-    template
-    && touched('silhouette', ...REGION_FIELD_IDS, 'muscle_def', 'body_softness')
-  ) {
-    for (const [id, val] of Object.entries(template)) {
-      if (locked(id)) continue
-      if (id === 'muscle_def' || id === 'body_softness') {
-        const [lo, hi] = val
-        out[id] = randomRange(lo, hi)
-      } else {
-        out[id] = val
-      }
-    }
-    if (Math.random() < 0.3) {
-      const pick = REGION_FIELD_IDS[Math.floor(Math.random() * REGION_FIELD_IDS.length)]
-      const field = FIELD_BY_ID[pick]
-      if (field && !locked(pick)) {
-        out[pick] = randomSelectValue(field, out)
-      }
-    }
-  }
-
-  const species = out.species
-  const forceNa = HAIRLESS_SPECIES.has(species)
-    || (OFTEN_HAIRLESS_SPECIES.has(species) && Math.random() < 0.55)
-  if (forceNa && touched('body_hair', 'mustache', 'beard', 'species')) {
-    if (!locked('body_hair')) out.body_hair = 'N/A (Non-Human)'
-    if (!locked('mustache')) out.mustache = 'N/A (Non-Human)'
-    if (!locked('beard')) out.beard = 'N/A (Non-Human)'
-  }
-
-  if (touched('chest_anatomy', 'sex') && !locked('chest_anatomy') && out.sex) {
-    out.chest_anatomy = correlateChestAnatomy(out.sex)
-  }
-
-  if (touched('gender_expression', 'gender') && !locked('gender_expression') && out.gender && Math.random() < 0.7) {
-    const expr = correlateGenderExpression(out.gender)
-    if (expr) out.gender_expression = expr
-  }
-
-  if (touched('transition_note', 'gender') && !locked('transition_note') && out.gender) {
-    out.transition_note = correlateTransitionNote(out.gender)
-  }
-
-  if (touched('romantic_orientation', 'orientation') && !locked('romantic_orientation') && out.orientation && Math.random() < 0.75) {
-    const rom = correlateRomanticFromSexual(out.orientation)
-    if (rom) out.romantic_orientation = rom
-  }
-
-  if (touched('sexual_role', 'sex') && !locked('sexual_role') && (out.sex === 'None/Construct' || out.sex === 'Non-Applicable')) {
-    if (Math.random() < 0.75) out.sexual_role = 'N/A'
-  }
-
-  if (touched('special_features', 'species') && !locked('special_features') && species === 'Human' && Math.random() < 0.82) {
-    out.special_features = 'Fully humanoid baseline'
-  }
-
-  return out
-}
-
-function fieldSkippedForRandomize(field, lockedFields) {
-  if (field.conditional) return true
-  if (lockedFields[field.id]) return true
-  return false
-}
-
-/** Pool-based full randomize; respects lockedFields by copying values from `character`. */
-function buildLocalRandomizedCharacter(lockedFields, character, options = {}) {
-  const { skipLocalTextForLlm = false } = options
-  const nextCharacter = { ...getDefaultCharacter() }
-
-  Object.keys(lockedFields).forEach((id) => {
-    if (lockedFields[id]) nextCharacter[id] = character[id]
-  })
-
-  Object.entries(CHARACTER_SECTIONS).forEach(([_sectionId, section]) => {
-    section.fields.forEach((field) => {
-      if (fieldSkippedForRandomize(field, lockedFields)) return
-      const val = randomValueForField(field, { skipLocalTextForLlm, character: nextCharacter })
-      if (val !== undefined) nextCharacter[field.id] = val
-    })
-  })
-
-  return applyRandomizeCorrelations(nextCharacter, lockedFields)
-}
-
-/** Merge section updates and clear `*_custom` when a rolled select is no longer Custom. */
-function mergeCharacterWithSelectCleanup(prev, updates) {
-  const merged = { ...prev, ...updates }
-  for (const [id, val] of Object.entries(updates)) {
-    const f = FIELD_BY_ID[id]
-    if (f?.type !== 'select' || val === 'Custom') continue
-    const cid = `${id}_custom`
-    if (FIELD_BY_ID[cid]) merged[cid] = ''
-  }
-  return merged
-}
-
-/** After a full local build, drop orphan `*_custom` strings when the parent select is not Custom. */
-function clearStaleCustomTexts(merged) {
-  const out = { ...merged }
-  Object.values(CHARACTER_SECTIONS).forEach((section) => {
-    section.fields.forEach((field) => {
-      if (field.type !== 'select') return
-      const customId = `${field.id}_custom`
-      if (!FIELD_BY_ID[customId]) return
-      if (out[field.id] !== 'Custom') out[customId] = ''
-    })
-  })
-  return out
-}
-
-function textFieldVisibleForMerged(merged, field) {
-  if (!field.conditional) return true
-  return merged[field.conditional.field] === field.conditional.value
-}
-
-/**
- * @param {Record<string, unknown>} mergedCharacter
- * @param {Record<string, true>} lockedFields
- * @param {{ mode: 'all' | 'section', sectionKey?: string, rolledFieldIds?: string[] }} context
- */
-function collectLlmTextFieldIds(mergedCharacter, lockedFields, context) {
-  const { mode, sectionKey, rolledFieldIds } = context
-  const rolledSet = rolledFieldIds ? new Set(rolledFieldIds) : null
-  const targets = []
-
-  for (const [secKey, section] of Object.entries(CHARACTER_SECTIONS)) {
-    if (mode === 'section' && secKey !== sectionKey) continue
-    for (const field of section.fields) {
-      if (field.type !== 'text') continue
-      if (lockedFields[field.id]) continue
-      if (!textFieldVisibleForMerged(mergedCharacter, field)) continue
-
-      if (mode === 'all') {
-        if (field.conditional) {
-          if (mergedCharacter[field.conditional.field] === 'Custom') targets.push(field.id)
-        } else {
-          targets.push(field.id)
-        }
-      } else {
-        const parentId = field.conditional?.field
-        if (field.conditional) {
-          if (mergedCharacter[parentId] !== 'Custom') continue
-          if (!rolledSet.has(parentId)) continue
-          targets.push(field.id)
-        } else {
-          if (!rolledSet.has(field.id)) continue
-          targets.push(field.id)
-        }
-      }
-    }
-  }
-
-  return [...new Set(targets)]
-}
-
-function mergeLlmTextPatch(baseCharacter, patch, allowedIds) {
-  const out = { ...baseCharacter }
-  const allow = new Set(allowedIds)
-  for (const id of allow) {
-    if (!Object.prototype.hasOwnProperty.call(patch, id)) continue
-    const v = patch[id]
-    out[id] = v === null || v === undefined ? '' : String(v)
-  }
-  return out
-}
-
 function emptyGeneratedImagesState() {
   return emptyGeneratedImages()
 }
 
 /** Wipe identity-bound extras so Randomize All cannot keep the previous person's thread or art. */
-function newCharacterSessionFields() {
+function newCharacterSessionFields({ imageSeed } = {}) {
   return {
     characterId: null,
     generatedImages: emptyGeneratedImagesState(),
@@ -314,13 +54,25 @@ function newCharacterSessionFields() {
     chatCanon: '',
     wardrobe: [],
     chat: emptyChatState(),
-    imagePrefs: emptyImagePrefs(),
+    imagePrefs: emptyImagePrefs(Number.isFinite(imageSeed) ? { seed: imageSeed } : {}),
     motion: emptyMotionState(),
+    ledger: emptyLedger(),
   }
 }
 
+function normalizeCharacterSeed(raw) {
+  if (raw === null || raw === undefined || raw === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? clampSeed(n) : null
+}
+
+/** Sub-stream for a given seed so sheet / ledger / image / section rolls never shift each other. */
+function streamRng(seed, ...parts) {
+  return createRng(hashSeed(seed, ...parts))
+}
+
 /**
- * Normalize a library record (v1 lock migrate, v3 chat, v4 front/side/back slots, v10 motion).
+ * Normalize a library record (v1 lock migrate, v3 chat, v4 front/side/back slots, v10 motion, v11 ledger + seed).
  * @param {Record<string, unknown>} saved
  */
 export function migrateSavedCharacter(saved) {
@@ -335,6 +87,10 @@ export function migrateSavedCharacter(saved) {
       chat: emptyChatState(),
       imagePrefs: emptyImagePrefs({ randomizeSeed: false }),
       motion: emptyMotionState(),
+      ledger: emptyLedger(),
+      characterSeed: null,
+      rollCount: 0,
+      seedLocked: false,
     }
   }
 
@@ -388,6 +144,10 @@ export function migrateSavedCharacter(saved) {
     chat: normalizeChatState(saved.chat),
     imagePrefs: normalizeImagePrefs(saved.imagePrefs),
     motion: normalizeMotionState(saved.motion),
+    ledger: normalizeLedger(saved.ledger),
+    characterSeed: normalizeCharacterSeed(saved.characterSeed),
+    rollCount: Math.max(0, Math.round(Number(saved.rollCount)) || 0),
+    seedLocked: !!saved.seedLocked,
   }
 }
 
@@ -409,6 +169,12 @@ export const useCharacterStore = create((set, get) => ({
   /** Resolved rig profile object for motion.rigProfileId (null = reference rig). */
   rigProfile: null,
   isGeneratingMotion: false,
+
+  /** Life ledger + the recipe that produced this sheet (seed null = unknown / imported). */
+  ledger: emptyLedger(),
+  characterSeed: null,
+  rollCount: 0,
+  seedLocked: false,
 
   // API Key
   apiKey: '',
@@ -675,138 +441,165 @@ export const useCharacterStore = create((set, get) => ({
   },
 
   /**
-   * Randomize one section: local dice first, then targeted LLM for name / Custom follow-ups when an API key is set.
-   * @returns {Promise<{ source: 'llm' | 'local', reason?: string }>}
+   * Randomize one section locally with a seeded sub-stream. Never calls an LLM.
+   * @returns {{ source: 'local' }}
    */
-  randomizeSection: async (sectionKey) => {
+  randomizeSection: (sectionKey) => {
     const section = CHARACTER_SECTIONS[sectionKey]
     if (!section) return { source: 'local' }
-
-    const { lockedFields: lf, character, apiKey, selectedTextModel } = get()
-    const hasKey = !!apiKey?.trim()
-    const toast = useToastStore.getState().addToast
-
-    const updates = {}
-    const draft = { ...character }
-    section.fields.forEach((field) => {
-      if (fieldSkippedForRandomize(field, lf)) return
-      const val = randomValueForField(field, { skipLocalTextForLlm: hasKey, character: draft })
-      if (val !== undefined) {
-        updates[field.id] = val
-        draft[field.id] = val
-      } else if (hasKey && field.type === 'text' && field.id === 'name') {
-        updates.name = ''
-        draft.name = ''
-      }
-    })
-
-    const correlated = applyRandomizeCorrelations({ ...character, ...updates }, lf, {
-      rolled: Object.keys(updates),
-    })
-    Object.keys(correlated).forEach((id) => {
-      if (lf[id]) return
-      if (correlated[id] !== character[id]) updates[id] = correlated[id]
-    })
-
-    const merged = mergeCharacterWithSelectCleanup(character, updates)
-    const rolledFieldIds = Object.keys(updates)
-
-    const targets = collectLlmTextFieldIds(merged, lf, {
-      mode: 'section',
-      sectionKey,
-      rolledFieldIds,
-    })
-
-    if (!hasKey || targets.length === 0) {
-      set({ character: merged })
-      return { source: 'local' }
-    }
-
-    set({ isGenerating: true })
-    try {
-      let patch
-      try {
-        patch = await generateCustomFields(
-          CHARACTER_SECTIONS,
-          selectedTextModel,
-          apiKey.trim(),
-          merged,
-          targets
-        )
-      } catch (e) {
-        console.error('generateCustomFields failed:', e)
-        toast(
-          `AI randomization failed (${e instanceof Error ? e.message : 'unknown error'}). Custom text fields left blank.`,
-          'error'
-        )
-        set({ character: merged })
-        return { source: 'local', reason: 'api_error' }
-      }
-
-      const filled = mergeLlmTextPatch(merged, patch, targets)
-      set({ character: filled })
-      return { source: 'llm' }
-    } finally {
-      set({ isGenerating: false })
-    }
+    const { lockedFields, character, characterSeed, rollCount } = get()
+    const seed = characterSeed == null ? randomSeed() : characterSeed
+    const nextCount = (rollCount || 0) + 1
+    const locked = effectiveLockedFields(lockedFields, character)
+    const rng = streamRng(seed, 'section', sectionKey, nextCount)
+    const { updates } = rollSection(sectionKey, character, locked, rng)
+    const merged = mergeCharacterWithSelectCleanup(character, updates, locked)
+    set({ character: merged, characterSeed: seed, rollCount: nextCount })
+    return { source: 'local' }
   },
 
   /**
-   * Randomize all sections: local dice first (including Custom), then targeted LLM for text / *_custom when an API key is set.
-   * On API failure, keeps the local dice result and shows an error toast.
-   * @returns {Promise<{ source: 'llm' | 'local', reason?: string }>}
+   * Randomize the whole sheet + life ledger from one seed. Same (seed, locks, locked values)
+   * reproduces the same character. Never calls an LLM.
+   * @returns {{ source: 'local', seed: number }}
    */
-  randomizeAll: async () => {
-    const { lockedFields, character, apiKey, selectedTextModel } = get()
-    const toast = useToastStore.getState().addToast
-    const hasKey = !!apiKey?.trim()
-    const lockedSlice = pickLockedFromCharacter(character, lockedFields)
+  randomizeAll: () => {
+    const { lockedFields, character, characterSeed, seedLocked } = get()
+    const seed = seedLocked && characterSeed != null ? characterSeed : randomSeed()
+    const locked = effectiveLockedFields(lockedFields, character)
+    const lockedSlice = pickLockedFromCharacter(character, locked)
 
-    let next = buildLocalRandomizedCharacter(lockedFields, character, {
-      skipLocalTextForLlm: hasKey,
+    let next = buildLocalRandomizedCharacter(locked, character, streamRng(seed, 'sheet'))
+    next = { ...clearStaleCustomTexts(next, locked), ...lockedSlice }
+    const ledger = buildLedger(next, streamRng(seed, 'ledger'), { lockedFields: locked })
+    next = applyLedgerEffects(next, ledger.events, locked, { mode: 'overwrite' })
+
+    set({
+      character: next,
+      ...newCharacterSessionFields({ imageSeed: hashSeed(seed, 'image') % (SEED_MAX + 1) }),
+      ledger,
+      characterSeed: seed,
+      rollCount: 0,
     })
-    next = clearStaleCustomTexts(next)
+    return { source: 'local', seed }
+  },
 
-    if (!hasKey) {
-      set({ character: next, ...newCharacterSessionFields() })
-      toast('Add an API key in Settings to use AI randomization.', 'info')
-      return { source: 'local', reason: 'no_api_key' }
+  /**
+   * Fill blank visible text fields (name, *_custom) with Gemini on demand.
+   * @param {{ scope?: 'all' | string }} [opts] — a section key limits the pass to that section
+   * @returns {Promise<{ source: 'llm' | 'local', reason?: string, filled: number }>}
+   */
+  enrichWithAi: async ({ scope = 'all' } = {}) => {
+    const { apiKey, selectedTextModel, character, lockedFields } = get()
+    const toast = useToastStore.getState().addToast
+    if (!apiKey?.trim()) {
+      toast('Add a Google AI key in Settings to enrich with AI.', 'info')
+      return { source: 'local', reason: 'no_api_key', filled: 0 }
     }
-
-    const targets = collectLlmTextFieldIds(next, lockedFields, { mode: 'all' })
-    if (targets.length === 0) {
-      set({ character: { ...next, ...lockedSlice }, ...newCharacterSessionFields() })
-      return { source: 'local' }
+    const locked = effectiveLockedFields(lockedFields, character)
+    const targets = scope === 'all'
+      ? collectLlmTextFieldIds(character, locked, { mode: 'all', onlyBlank: true })
+      : collectLlmTextFieldIds(character, locked, { mode: 'section', sectionKey: scope, onlyBlank: true })
+    if (!targets.length) {
+      toast('Nothing to enrich — visible text fields are already filled.', 'info')
+      return { source: 'local', reason: 'nothing_to_fill', filled: 0 }
     }
 
     set({ isGenerating: true })
     try {
-      let patch
-      try {
-        patch = await generateCustomFields(
-          CHARACTER_SECTIONS,
-          selectedTextModel,
-          apiKey.trim(),
-          next,
-          targets
-        )
-      } catch (e) {
-        console.error('generateCustomFields failed:', e)
-        toast(
-          `AI randomization failed (${e instanceof Error ? e.message : 'unknown error'}). Used local dice; custom text left blank.`,
-          'error'
-        )
-        set({ character: { ...next, ...lockedSlice }, ...newCharacterSessionFields() })
-        return { source: 'local', reason: 'api_error' }
-      }
-
-      const filled = mergeLlmTextPatch(next, patch, targets)
-      set({ character: { ...filled, ...lockedSlice }, ...newCharacterSessionFields() })
-      return { source: 'llm' }
+      const patch = await generateCustomFields(CHARACTER_SECTIONS, selectedTextModel, apiKey.trim(), character, targets)
+      const current = get().character
+      const stillBlank = targets.filter((id) => !String(current[id] ?? '').trim())
+      set({ character: mergeLlmTextPatch(current, patch, stillBlank) })
+      toast(`Filled ${stillBlank.length} field${stillBlank.length === 1 ? '' : 's'} with AI.`, 'success')
+      return { source: 'llm', filled: stillBlank.length }
+    } catch (e) {
+      console.error('enrichWithAi failed:', e)
+      toast(`AI enrichment failed (${e instanceof Error ? e.message : 'unknown error'}). Fields left blank.`, 'error')
+      return { source: 'local', reason: 'api_error', filled: 0 }
     } finally {
       set({ isGenerating: false })
     }
   },
+
+  setCharacterSeed: (seed) => set({ characterSeed: normalizeCharacterSeed(seed) }),
+  toggleSeedLock: () => set((state) => ({ seedLocked: !state.seedLocked })),
+
+  /** Recompute MBTI / Enneagram / alignment from the current OCEAN sliders (unlocked fields only). */
+  rederiveFromOcean: () => {
+    const { character, lockedFields, characterSeed, rollCount } = get()
+    const seed = characterSeed == null ? randomSeed() : characterSeed
+    const nextCount = (rollCount || 0) + 1
+    const locked = effectiveLockedFields(lockedFields, character)
+    const patch = deriveFromOcean(character, streamRng(seed, 'derive', nextCount), { locked: (id) => !!locked[id] })
+    set({ character: { ...character, ...patch }, characterSeed: seed, rollCount: nextCount })
+    return patch
+  },
+
+  // --- Life ledger ---
+
+  /**
+   * Rebuild unlocked events; locked events are kept. Effects of NEW events are applied to the sheet.
+   * @param {{ mode?: 'overwrite' | 'fill' }} [opts] — 'fill' never clobbers a filled field (old saves)
+   */
+  regenerateLedger: ({ mode = 'overwrite' } = {}) => {
+    const { character, lockedFields, ledger, characterSeed, rollCount } = get()
+    const seed = characterSeed == null ? randomSeed() : characterSeed
+    const nextCount = (rollCount || 0) + 1
+    const locked = effectiveLockedFields(lockedFields, character)
+    const keep = normalizeLedger(ledger).events.filter((e) => e.locked)
+    const next = buildLedger(character, streamRng(seed, 'ledger', 'regen', nextCount), { keep, lockedFields: locked })
+    const keptIds = new Set(keep.map((e) => e.id))
+    const fresh = next.events.filter((e) => !keptIds.has(e.id))
+    set({
+      ledger: next,
+      character: applyLedgerEffects(character, fresh, locked, { mode }),
+      characterSeed: seed,
+      rollCount: nextCount,
+    })
+  },
+
+  generateLedgerForCurrent: () => get().regenerateLedger({ mode: 'fill' }),
+
+  rerollLedgerEvent: (index) => {
+    const { character, lockedFields, ledger, characterSeed, rollCount } = get()
+    const seed = characterSeed == null ? randomSeed() : characterSeed
+    const nextCount = (rollCount || 0) + 1
+    const locked = effectiveLockedFields(lockedFields, character)
+    const res = rerollLedgerEventPure(normalizeLedger(ledger), index, character, locked, streamRng(seed, 'ledger', 'reroll', index, nextCount))
+    set({ ledger: res.ledger, character: res.character, characterSeed: seed, rollCount: nextCount })
+  },
+
+  addLedgerEvent: () => {
+    const { character, lockedFields, ledger, characterSeed, rollCount } = get()
+    const seed = characterSeed == null ? randomSeed() : characterSeed
+    const nextCount = (rollCount || 0) + 1
+    const locked = effectiveLockedFields(lockedFields, character)
+    const res = addLedgerEventPure(normalizeLedger(ledger), character, locked, streamRng(seed, 'ledger', 'add', nextCount))
+    set({ ledger: res.ledger, character: res.character, characterSeed: seed, rollCount: nextCount })
+  },
+
+  removeLedgerEvent: (index) =>
+    set((state) => {
+      const current = normalizeLedger(state.ledger)
+      return { ledger: { ...current, events: current.events.filter((_, i) => i !== index) } }
+    }),
+
+  toggleLedgerEventLock: (index) =>
+    set((state) => {
+      const current = normalizeLedger(state.ledger)
+      const events = current.events.map((e, i) => (i === index ? { ...e, locked: !e.locked } : e))
+      return { ledger: { ...current, events } }
+    }),
+
+  /** Manual edits (title / summary / age / tone); re-sorts when the age changes. */
+  setLedgerEvent: (index, patch) =>
+    set((state) => {
+      const current = normalizeLedger(state.ledger)
+      if (!current.events[index]) return {}
+      const events = current.events.map((e, i) => (i === index ? { ...e, ...patch } : e))
+      return { ledger: normalizeLedger({ ...current, events }) }
+    }),
 
   // --- Motion Studio ---
 
@@ -910,6 +703,10 @@ export const useCharacterStore = create((set, get) => ({
       imagePrefs: migrated.imagePrefs || emptyImagePrefs({ randomizeSeed: false }),
       chat: migrated.chat,
       motion: migrated.motion,
+      ledger: migrated.ledger,
+      characterSeed: migrated.characterSeed,
+      rollCount: migrated.rollCount,
+      seedLocked: migrated.seedLocked,
       lockedFields,
     })
     void get().resolveRigProfile(migrated.motion?.rigProfileId)
@@ -933,6 +730,10 @@ export const useCharacterStore = create((set, get) => ({
       imagePrefs: normalizeImagePrefs(state.imagePrefs),
       chat: normalizeChatState(state.chat),
       motion: normalizeMotionState(state.motion),
+      ledger: normalizeLedger(state.ledger),
+      characterSeed: normalizeCharacterSeed(state.characterSeed),
+      rollCount: Math.max(0, Math.round(Number(state.rollCount)) || 0),
+      seedLocked: !!state.seedLocked,
       metadata: {
         tags: [],
         favorite: false,
@@ -957,6 +758,10 @@ export const useCharacterStore = create((set, get) => ({
       chat: emptyChatState(),
       motion: emptyMotionState(),
       rigProfile: null,
+      ledger: emptyLedger(),
+      characterSeed: null,
+      rollCount: 0,
+      seedLocked: false,
       lockedFields: {},
     })
   },

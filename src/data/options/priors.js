@@ -2,6 +2,8 @@
  * Genre priors and randomize correlations. Multipliers stack on option.weight.
  */
 
+import { mathRng } from '../../utils/rng'
+
 export const HAIRLESS_SPECIES = new Set([
   'Android/Cyborg',
   'Elemental',
@@ -467,43 +469,43 @@ export const SILHOUETTE_TEMPLATES = {
   },
 }
 
-export function extraversionToBattery(oceanE) {
+export function extraversionToBattery(oceanE, rng = mathRng) {
   const v = Number(oceanE)
   if (!Number.isFinite(v)) return 'Ambivert'
   if (v < 20) return 'Deep Introvert'
   if (v < 40) return 'Introvert'
   if (v < 60) return 'Ambivert'
   if (v < 82) return 'Extrovert'
-  return Math.random() < 0.45 ? 'Omnivert' : 'Extrovert'
+  return rng.next() < 0.45 ? 'Omnivert' : 'Extrovert'
 }
 
-export function correlateChestAnatomy(sex) {
+export function correlateChestAnatomy(sex, rng = mathRng) {
   if (sex === 'Female') {
-    const r = Math.random()
+    const r = rng.next()
     if (r < 0.68) return 'Breasts'
     if (r < 0.86) return 'Soft mixed chest'
     return 'Pectorals'
   }
   if (sex === 'Male') {
-    const r = Math.random()
+    const r = rng.next()
     if (r < 0.72) return 'Pectorals'
     if (r < 0.9) return 'Soft mixed chest'
     return 'Breasts'
   }
   if (sex === 'Intersex') {
-    return Math.random() < 0.55 ? 'Soft mixed chest' : (Math.random() < 0.5 ? 'Breasts' : 'Pectorals')
+    return rng.next() < 0.55 ? 'Soft mixed chest' : (rng.next() < 0.5 ? 'Breasts' : 'Pectorals')
   }
   if (sex === 'None/Construct' || sex === 'Non-Applicable') return 'N/A (Non-Human)'
   return ''
 }
 
-export function correlateGenderExpression(gender) {
+export function correlateGenderExpression(gender, rng = mathRng) {
   if (gender === 'Man' || gender === 'Transgender Man') return 'Masculine'
   if (gender === 'Woman' || gender === 'Transgender Woman') return 'Feminine'
   if (gender === 'Genderfluid') return 'Fluid / context-shifting'
   if (gender === 'Agender') return 'Neutral / unmarked'
   if (gender === 'Non-binary' || gender === 'Two-Spirit' || gender === 'Other') {
-    const r = Math.random()
+    const r = rng.next()
     if (r < 0.4) return 'Androgynous'
     if (r < 0.7) return 'Neutral / unmarked'
     return 'Fluid / context-shifting'
@@ -511,9 +513,9 @@ export function correlateGenderExpression(gender) {
   return ''
 }
 
-export function correlateTransitionNote(gender) {
+export function correlateTransitionNote(gender, rng = mathRng) {
   if (gender === 'Transgender Man' || gender === 'Transgender Woman') {
-    const r = Math.random()
+    const r = rng.next()
     if (r < 0.45) return 'Post-transition'
     if (r < 0.7) return 'Medically transitioning'
     if (r < 0.88) return 'Socially transitioning'
@@ -522,7 +524,7 @@ export function correlateTransitionNote(gender) {
   return 'None noted'
 }
 
-export function correlateRomanticFromSexual(orientation) {
+export function correlateRomanticFromSexual(orientation, rng = mathRng) {
   const map = {
     Heterosexual: 'Heteroromantic',
     Homosexual: 'Homoromantic',
@@ -533,7 +535,7 @@ export function correlateRomanticFromSexual(orientation) {
     Fluid: 'Fluid',
   }
   if (orientation === 'Asexual') {
-    return Math.random() < 0.35 ? 'Aromantic' : (Math.random() < 0.5 ? 'Demiromantic' : 'Heteroromantic')
+    return rng.next() < 0.35 ? 'Aromantic' : (rng.next() < 0.5 ? 'Demiromantic' : 'Heteroromantic')
   }
   return map[orientation] || ''
 }
@@ -561,7 +563,7 @@ export function clampInt(n, lo, hi) {
   return Math.max(lo, Math.min(hi, Math.round(n)))
 }
 
-export function apparentAgeFromChronological(age, species) {
+export function apparentAgeFromChronological(age, species, rng = mathRng) {
   const a = Number(age)
   if (!Number.isFinite(a)) return ''
   let window = 8
@@ -570,6 +572,6 @@ export function apparentAgeFromChronological(age, species) {
   }
   const lo = species === 'Vampire' || species === 'Elf' ? Math.max(1, a - 40) : Math.max(1, a - 15)
   const hi = Math.min(120, a + (species === 'Vampire' || species === 'Undead' ? 40 : 18))
-  const delta = Math.floor(Math.random() * (window * 2 + 1)) - window
+  const delta = Math.floor(rng.next() * (window * 2 + 1)) - window
   return clampInt(a + delta, lo, hi)
 }

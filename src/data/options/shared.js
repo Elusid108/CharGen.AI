@@ -2,6 +2,8 @@
  * Option record helpers. Saved select values are option `id` strings (legacy labels).
  */
 
+import { mathRng } from '../../utils/rng'
+
 export const CUSTOM_ID = 'Custom'
 
 export const WEIGHT_CUSTOM = 0.08
@@ -545,7 +547,7 @@ export function normalizeSelectOptions(options) {
   })
 }
 
-export function pickWeightedFrom(options, weightOf) {
+export function pickWeightedFrom(options, weightOf, rng = mathRng) {
   const list = normalizeSelectOptions(options)
   if (!list.length) return ''
   const weights = list.map((o) => {
@@ -553,8 +555,8 @@ export function pickWeightedFrom(options, weightOf) {
     return Number.isFinite(w) && w > 0 ? w : 0
   })
   const total = weights.reduce((a, b) => a + b, 0)
-  if (total <= 0) return list[Math.floor(Math.random() * list.length)].id
-  let r = Math.random() * total
+  if (total <= 0) return list[Math.floor(rng.next() * list.length)].id
+  let r = rng.next() * total
   for (let i = 0; i < list.length; i++) {
     r -= weights[i]
     if (r <= 0) return list[i].id

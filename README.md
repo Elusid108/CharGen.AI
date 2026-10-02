@@ -1,15 +1,25 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.10.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D. **Motion Studio** compiles the same sheet into a timed, hardware-agnostic expression and gesture script for an animatronic rig.
+**v1.11.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D. **Motion Studio** compiles the same sheet into a timed, hardware-agnostic expression and gesture script for an animatronic rig.
 
 ## Features
 
 ### Character Creation
-- **8 attribute sections**: Identity, Physical Anatomy, Face & Grooming, Movement & Presence, Psychology, Narrative & History, Social & Speech, and Mature/Adult
+- **8 attribute sections** plus a **History** timeline: Identity, Physical Anatomy, Face & Grooming, Movement & Presence, Psychology, Narrative & History, History, Social & Speech, and Mature/Adult
 - **100+ customizable attributes**, including **Default Outfit** on Identity (used for clothed images)
 - **Conditional fields** that adapt by species and custom values
-- **One-click randomization** per section or for the whole character
-- **Context panel** with definitions, psychological implications, and roleplay tips
+- **Seeded, fully local randomization**: Randomize All and per-section Randomize never call an LLM. Every roll comes from a **character seed** (shown in the sidebar; lock it to reroll the same recipe, edit it to replay someone else's). Same seed + same locks = the same sheet, life ledger, and image seed. Imported or hand-built characters show "No seed" until you roll
+- **Enrich with AI** (sidebar for the whole sheet, section header for one section) fills blank name / Custom text fields with Gemini on demand — the only place the sheet touches an LLM
+- **OCEAN-rooted psychology**: the five Big Five sliders roll bell-shaped, and **MBTI, Enneagram, and alignment are derived from them** (with seeded noise) instead of rolling independently. Personality, attachment, coping, and core value are weighted toward the OCEAN profile too. The derived fields stay editable and lockable; moving a slider never silently rewrites them — use **Re-derive from OCEAN** on the Psychology tab. The context panel shows the derivation
+- **Context panel** with definitions, psychological implications, roleplay tips, and derivation stats
+
+### History (Life Ledger)
+- **3–7 formative events** generated locally with the character (more for older characters), age-ordered, each with a tone (wound, loss, crime, turning, gift, bond, triumph) and the sheet fields it explains, e.g. *Trauma History → Former captivity*, *The Lie They Believe → Trust no one*
+- **Causal, not decorative**: the ledger runs after the sheet roll and writes its resolved values back into trauma, fear, lie, attachment, coping, goal, desire, moral code, prejudice, scars, competencies, and class. The sheet's trauma is always explained by exactly one event, and no two events claim the same field
+- **~50 templates** in `src/data/lifeEvents.js` with slots for name / origin / occupation and `requires` (genre, origin, class, age), including at least one non-wound event per character
+- **Editable timeline**: reroll one event (keeps its age), lock events so *Regenerate unlocked* keeps them, add or delete events, edit title / summary / age / tone inline. Hovering an event shows its effects in the context panel
+- **Older characters**: *Generate history* fills a ledger for a saved character without overwriting any field that is already set
+- **Feeds the writing**: the story bible gets `life_ledger`, backstory / hooks prompts are told it is canon (draw at most two events, never chronologically), and chat gets a `[HISTORY — SUBTEXT]` block
 
 ### Image Generation (Stats → Images)
 Identity is a **front T-pose lock** (3:4, underwear). Side, back, profile, and mannequin are generated from that lock when a Gemini native image model is selected.
@@ -17,7 +27,7 @@ Identity is a **front T-pose lock** (3:4, underwear). Side, back, profile, and m
 - **Generate All** order: front T-pose lock → side → back → profile → mannequin
 - **Slots**: front lock, side, back, profile (1:1), mannequin (relaxed dress-up pose)
 - **Canonical + Thirst profiles**: generating Profile creates both looks at once. Switch them on the Profile card. Canonical uses Default Outfit; Thirst uses Intimate Attire. Body locks stay underwear shots
-- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 10). Seed is `0`–`2147483647` with a slider, number field, and randomize
+- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 11). Randomize All derives the image seed from the character seed. Seed is `0`–`2147483647` with a slider, number field, and randomize
 - **Wardrobe outfits** use the **mannequin** pose when one exists (T-pose lock only as fallback)
 - Native Gemini image models can take a reference; Imagen `predict` remains text-only (platform limit)
 
@@ -84,7 +94,7 @@ Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and f
 ### Character Library
 - **IndexedDB** — everything stays in the browser
 - **Stable character id** so Save updates the same library row
-- **schemaVersion 10** saves: dual profile slots, image prefs, line-item wardrobe, chat album, presence, timestamps, **3D current + archive history** (`generatedModels`), and **motion** (chosen rig id + saved motion scripts). Older saves load with an empty motion state
+- **schemaVersion 11** saves: dual profile slots, image prefs, line-item wardrobe, chat album, presence, timestamps, **3D current + archive history** (`generatedModels`), **motion** (chosen rig id + saved motion scripts), the **life ledger**, and the **character seed** recipe (`characterSeed`, `rollCount`, `seedLocked`). Older saves load with an empty ledger and no seed
 - **Models** object store holds GLB / preview / animation / STL / FBX blobs in the browser; Download is optional
 - **rigProfiles** object store holds your custom rig JSON (`RIG_PROFILE_SCHEMA_VERSION` 1), separate from character saves
 - **JPEG compression** on generated, wardrobe, analysis, and chat images
@@ -96,7 +106,7 @@ Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and f
 ### Prerequisites
 - **Node.js** (for local runs)
 - A **Google AI API key** (free tier available) from [Google AI Studio](https://aistudio.google.com/apikey)
-  - Used for Gemini text, vision, native image, and Imagen
+  - Used for Gemini text, vision, native image, and Imagen. Rolling characters and life ledgers works offline without it
   - Settings lets you refresh the model list for your account
 - Optional **Tripo API key** from [Tripo](https://platform.tripo3d.ai) for 3D Studio
   - Separate from Google. Stored locally. Used only when you confirm a Generate 3D (or rig/export) button
@@ -149,7 +159,7 @@ Image, chat, and library features work on the hosted site. **Tripo 3D needs the 
 - **Tripo OpenAPI v3** for deliberate 3D generation (local Vite `/tripo-api` and `/tripo-artifact` proxies)
 - **Three.js** for in-app STL orbit preview
 - **model-viewer** for GLB orbit / touch / animation playback
-- **Vitest** for the motion layer (`npm test`): vocabulary, rig validation, style compiler, script generator / clamp, and the Gemini path with `fetch` stubbed
+- **Vitest** (`npm test`) for the pure logic: seeded RNG and roll pipeline, OCEAN derivation, life-event templates and ledger invariants, story bible / chat prompt blocks, and the motion layer (vocabulary, rig validation, style compiler, script generator / clamp, Gemini path with `fetch` stubbed)
 - **JSZip** for bulk downloads
 - **Lucide React** for icons
 

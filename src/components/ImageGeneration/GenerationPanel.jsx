@@ -67,6 +67,7 @@ export default function GenerationPanel() {
   const setBackstory = useCharacterStore(s => s.setBackstory)
   const chatCanon = useCharacterStore(s => s.chatCanon)
   const setChatCanon = useCharacterStore(s => s.setChatCanon)
+  const ledger = useCharacterStore(s => s.ledger)
   const addToast = useToastStore(s => s.addToast)
 
   const artStyle = imagePrefs?.artStyle ?? ''
@@ -267,6 +268,7 @@ export default function GenerationPanel() {
       lensId,
       selectedHook,
       modelId: selectedTextModel,
+      ledger,
     })
     setBackstory(result.backstory)
     if (result.chatCanon) setChatCanon(result.chatCanon)
@@ -289,6 +291,7 @@ export default function GenerationPanel() {
           genre: storyGenre,
           lensId,
           modelId: selectedTextModel,
+          ledger,
         })
         setStoryHooks(hooks)
         addToast('Pick a hook, then we write from it.', 'info')

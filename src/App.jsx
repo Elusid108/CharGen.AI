@@ -9,12 +9,14 @@ import WardrobePanel from './components/WardrobeSystem/WardrobePanel'
 import LibraryPanel from './components/Library/LibraryPanel'
 import ChatPanel from './components/Chat/ChatPanel'
 import MotionPanel from './components/Motion/MotionPanel'
+import HistoryPanel from './components/CharacterSheet/HistoryPanel'
+import { FORM_TAB_IDS } from './data/sheetTabs'
 import SettingsPanel from './components/shared/SettingsPanel'
 import ToastContainer from './components/shared/ToastContainer'
 import { useCharacterStore } from './hooks/useCharacter'
 import { resumeInFlightTripoJobs, refreshTripoBalanceSilent } from './utils/tripoJobs'
 
-const FORM_TABS = ['identity', 'physical', 'face', 'movement', 'psychology', 'narrative', 'social', 'adult']
+const FORM_TABS = FORM_TAB_IDS
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState('identity')
@@ -43,6 +45,7 @@ export default function App() {
   }, [tripoApiKey, characterId])
 
   const isFormTab = FORM_TABS.includes(currentTab)
+  const isSheetTab = isFormTab || currentTab === 'history'
 
   return (
     <div className="h-screen flex overflow-hidden bg-slate-950">
@@ -79,13 +82,14 @@ export default function App() {
                     onContextChange={setContextInfo}
                   />
                 )}
+                {currentTab === 'history' && <HistoryPanel onContextChange={setContextInfo} />}
                 {currentTab === 'generate' && <GenerationPanel />}
                 {currentTab === 'analyze' && <ImageAnalysis />}
                 {currentTab === 'wardrobe' && <WardrobePanel />}
                 {currentTab === 'motion' && <MotionPanel />}
                 {currentTab === 'library' && <LibraryPanel />}
               </div>
-              {isFormTab && (
+              {isSheetTab && (
                 <ContextPanel contextInfo={contextInfo} />
               )}
             </>

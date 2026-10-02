@@ -95,6 +95,7 @@ export default function ChatPanel() {
   const imagePrefs = useCharacterStore((s) => s.imagePrefs)
   const backstory = useCharacterStore((s) => s.backstory)
   const chatCanon = useCharacterStore((s) => s.chatCanon)
+  const ledger = useCharacterStore((s) => s.ledger)
   const wardrobe = useCharacterStore((s) => s.wardrobe)
   const chat = useCharacterStore((s) => s.chat)
   const replaceChatApiAndUi = useCharacterStore((s) => s.replaceChatApiAndUi)
@@ -164,8 +165,9 @@ ${presence === 'inperson' ? 'If you are working on a car / in a shop / on a job 
       situation,
       wardrobeBlock: `[WARDROBE]\nSaved looks (use the w-id tags):\n${wardrobeLines}`,
       photoBlock: `[PHOTO MEMORY]\nRecent photos they can ask you to pull up or edit:\n${photoLines}`,
+      ledger,
     })
-  }, [character, chatCanon, backstory, settings, wardrobe, photos, chat?.ui, presence])
+  }, [character, chatCanon, backstory, settings, wardrobe, photos, chat?.ui, presence, ledger])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })

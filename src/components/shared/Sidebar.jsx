@@ -2,10 +2,12 @@ import React from 'react'
 import {
   Fingerprint, Dumbbell, ScanFace, Footprints, Brain, BookOpen,
   MessagesSquare, Flame, Sparkles, Upload, Shirt, BookMarked,
-  Settings, Dice5, Save, ChevronLeft, Dna, Loader2, Activity
+  Settings, Dice5, Save, ChevronLeft, Dna, Loader2, Activity, Milestone
 } from 'lucide-react'
 import { APP_VERSION } from '../../appVersion'
-import { CHARACTER_SECTIONS } from '../../data/schemas'
+import { SHEET_TABS } from '../../data/sheetTabs'
+import { randomSeed } from '../../utils/rng'
+import SeedControl from './SeedControl'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { saveCharacter } from '../../utils/db'
@@ -13,7 +15,7 @@ import { compressSaveAssets } from '../../utils/imageUtils'
 
 const ICON_MAP = {
   Fingerprint, Dumbbell, ScanFace, Footprints, Brain, BookOpen,
-  MessagesSquare, Flame,
+  MessagesSquare, Flame, Milestone,
 }
 
 const SPECIAL_TABS = [
@@ -28,6 +30,11 @@ const ANALYZE_TAB = { id: 'analyze', icon: Upload, label: 'Analyze Image', color
 
 export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggleSidebar, onOpenSettings }) {
   const randomizeAll = useCharacterStore(s => s.randomizeAll)
+  const enrichWithAi = useCharacterStore(s => s.enrichWithAi)
+  const characterSeed = useCharacterStore(s => s.characterSeed)
+  const seedLocked = useCharacterStore(s => s.seedLocked)
+  const setCharacterSeed = useCharacterStore(s => s.setCharacterSeed)
+  const toggleSeedLock = useCharacterStore(s => s.toggleSeedLock)
   const isGenerating = useCharacterStore(s => s.isGenerating)
   const getSaveData = useCharacterStore(s => s.getSaveData)
   const setCharacterId = useCharacterStore(s => s.setCharacterId)
@@ -51,12 +58,9 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
     }
   }
 
-  const handleRandomize = async () => {
-    const result = await randomizeAll()
-    if (result.source === 'llm') {
-      addToast('Character generated with AI.', 'success')
-    }
-    // Local paths: store already toasts (no API key info, or error + fallback).
+  const handleRandomize = () => {
+    const result = randomizeAll()
+    addToast(`Rolled a new character (seed ${result.seed}).`, 'success')
   }
 
   if (!sidebarOpen) return null
@@ -101,17 +105,17 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
         <div className="px-4 mb-2 mt-3">
           <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Character</span>
         </div>
-        {Object.entries(CHARACTER_SECTIONS).map(([key, section]) => {
-          const Icon = ICON_MAP[section.icon] || Fingerprint
-          const isActive = currentTab === key
+        {SHEET_TABS.map((tab) => {
+          const Icon = ICON_MAP[tab.icon] || Fingerprint
+          const isActive = currentTab === tab.id
           return (
             <button
-              key={key}
-              onClick={() => onTabChange(key)}
+              key={tab.id}
+              onClick={() => onTabChange(tab.id)}
               className={`nav-item ${isActive ? 'nav-item-active' : 'nav-item-inactive'}`}
             >
               <Icon size={16} className="shrink-0" />
-              <span className="truncate">{section.label}</span>
+              <span className="truncate">{tab.label}</span>
             </button>
           )
         })}
@@ -161,14 +165,35 @@ export default function Sidebar({ currentTab, onTabChange, sidebarOpen, onToggle
           <Save size={14} />
           <span>Save to Library</span>
         </button>
+        <SeedControl
+          compact
+          label="Character seed"
+          seed={characterSeed}
+          locked={seedLocked}
+          onToggleLock={toggleSeedLock}
+          onChange={setCharacterSeed}
+          onRandomize={randomSeed}
+          emptyLabel="No seed (imported)"
+          disabled={isGenerating}
+        />
         <button
           type="button"
           disabled={isGenerating}
           onClick={handleRandomize}
           className="btn-primary w-full flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
         >
-          {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Dice5 size={14} />}
-          <span>{isGenerating ? 'Generating…' : 'Randomize All'}</span>
+          <Dice5 size={14} />
+          <span>Randomize All</span>
+        </button>
+        <button
+          type="button"
+          disabled={isGenerating}
+          onClick={() => void enrichWithAi({ scope: 'all' })}
+          title="Fill blank name / custom text fields with Gemini"
+          className="btn-secondary w-full flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+        >
+          {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          <span>{isGenerating ? 'Enriching…' : 'Enrich with AI'}</span>
         </button>
       </div>
     </aside>
