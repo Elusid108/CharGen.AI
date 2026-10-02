@@ -28,6 +28,7 @@ import { emptyGeneratedModels, normalizeGeneratedModels } from '../utils/tripoMo
 import { DEFAULT_TEXT_MODEL, DEFAULT_IMAGE_MODEL } from '../utils/modelConstants'
 import { fetchGeminiModels } from '../utils/models'
 import { generateCustomFields, generateMotionScript } from '../utils/api'
+import { configureTripoTransport, normalizeProxyUrl } from '../utils/tripo'
 import { useToastStore } from './useToast'
 import { emptyChatState, normalizeChatState } from '../utils/chatPrompt'
 import { migrateProfileSlots, syncActiveProfileAlias } from '../utils/imageGeneration'
@@ -179,9 +180,12 @@ export const useCharacterStore = create((set, get) => ({
   // API Key
   apiKey: '',
   tripoApiKey: '',
+  tripoProxyUrl: '',
   tripoBalance: null,
   tripoBusy: false,
   tripoBusyLabel: null,
+  /** targetKey → { kind, label, target } for every running Tripo job. */
+  tripoActiveJobs: {},
   settingsReady: false,
 
   availableTextModels: [],
@@ -205,15 +209,19 @@ export const useCharacterStore = create((set, get) => ({
   // Initialize - load API key and model prefs from IndexedDB
   initialize: async () => {
     try {
-      const [key, tripoKey, textModel, imageModel] = await Promise.all([
+      const [key, tripoKey, textModel, imageModel, tripoProxy] = await Promise.all([
         getSetting('apiKey'),
         getSetting('tripoApiKey'),
         getSetting('selectedTextModel'),
         getSetting('selectedImageModel'),
+        getSetting('tripoProxyUrl'),
       ])
       const updates = { settingsReady: true }
       if (key) updates.apiKey = key
       if (tripoKey) updates.tripoApiKey = tripoKey
+      const proxyUrl = normalizeProxyUrl(tripoProxy)
+      configureTripoTransport({ proxyUrl })
+      updates.tripoProxyUrl = proxyUrl
       if (textModel) updates.selectedTextModel = textModel
       if (imageModel) updates.selectedImageModel = imageModel
       set(updates)
@@ -245,10 +253,32 @@ export const useCharacterStore = create((set, get) => ({
 
   setTripoBalance: (balance) => set({ tripoBalance: balance }),
 
+  setTripoProxyUrl: async (url) => {
+    const next = normalizeProxyUrl(url)
+    configureTripoTransport({ proxyUrl: next })
+    set({ tripoProxyUrl: next })
+    try {
+      await saveSetting('tripoProxyUrl', next)
+    } catch (e) {
+      console.error('Failed to save Tripo proxy URL:', e)
+    }
+    return next
+  },
+
   setTripoBusy: (busy, label = null) => set({
     tripoBusy: !!busy,
     tripoBusyLabel: busy ? label : null,
   }),
+
+  /** Per-asset job activity; `tripoBusy` is derived so existing UI keeps working. */
+  setTripoJobActive: (key, info) =>
+    set((state) => {
+      const jobs = { ...state.tripoActiveJobs }
+      if (info) jobs[key] = info
+      else delete jobs[key]
+      const keys = Object.keys(jobs)
+      return { tripoActiveJobs: jobs, tripoBusy: keys.length > 0, tripoBusyLabel: keys.length ? jobs[keys[0]].label || null : null }
+    }),
 
   setGeneratedModels: (models) => set({ generatedModels: normalizeGeneratedModels(models) }),
 
@@ -767,5 +797,5 @@ export const useCharacterStore = create((set, get) => ({
   },
 }))
 
-// Initialize on import
-useCharacterStore.getState().initialize()
+// Initialize on import (skipped in node tests, where there is no IndexedDB)
+if (typeof indexedDB !== 'undefined') useCharacterStore.getState().initialize()

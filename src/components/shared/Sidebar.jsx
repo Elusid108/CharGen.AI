@@ -2,7 +2,7 @@ import React from 'react'
 import {
   Fingerprint, Dumbbell, ScanFace, Footprints, Brain, BookOpen,
   MessagesSquare, Flame, Sparkles, Upload, Shirt, BookMarked,
-  Settings, Dice5, Save, ChevronLeft, Dna, Loader2, Activity, Milestone
+  Settings, Dice5, Save, ChevronLeft, Dna, Loader2, Activity, Milestone, Box
 } from 'lucide-react'
 import { APP_VERSION } from '../../appVersion'
 import { SHEET_TABS } from '../../data/sheetTabs'
@@ -23,6 +23,7 @@ const SPECIAL_TABS = [
   { id: 'chat', icon: MessagesSquare, label: 'Chat', color: 'cyan' },
   { id: 'wardrobe', icon: Shirt, label: 'Wardrobe', color: 'amber' },
   { id: 'motion', icon: Activity, label: 'Motion Studio', color: 'orange' },
+  { id: 'studio3d', icon: Box, label: '3D Studio', color: 'cyan' },
   { id: 'library', icon: BookMarked, label: 'Library', color: 'emerald' },
 ]
 

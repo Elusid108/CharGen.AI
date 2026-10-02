@@ -3,7 +3,7 @@
  * Handles character storage, wardrobe, generated content, and 3D model blobs
  */
 
-import { modelBlobId, legacyModelBlobId, MODEL_FILE_KINDS } from './tripoModels'
+import { modelBlobId, legacyModelBlobId, assetBlobPrefix, LEGACY_KIND_FOR_KEY, MODEL_FILE_KINDS } from './tripoModels'
 
 const DB_NAME = 'CharGenAI_DB'
 const DB_VERSION = 3
@@ -146,13 +146,18 @@ export async function putModelBlob({ characterId, slot, outfitId, kind, blob, mi
   return record.id
 }
 
-export async function getModelBlob(characterId, slot, outfitId, kind, assetId) {
+/** Looks up a v2 file key first, then the v1 kind it migrated from (per-asset, then unversioned). */
+export async function getModelBlob(characterId, slot, outfitId, fileKey, assetId) {
   const db = await openDB()
   const tx = db.transaction([STORES.MODELS], 'readonly')
   const store = tx.objectStore(STORES.MODELS)
-  const row = await idbReq(store.get(modelBlobId(characterId, slot, outfitId, kind, assetId)))
+  const row = await idbReq(store.get(modelBlobId(characterId, slot, outfitId, fileKey, assetId)))
   if (row) return row
-  return idbReq(store.get(legacyModelBlobId(characterId, slot, outfitId, kind)))
+  const legacyKind = LEGACY_KIND_FOR_KEY[fileKey] || (MODEL_FILE_KINDS.includes(fileKey) ? fileKey : null)
+  if (!legacyKind) return null
+  const perAsset = await idbReq(store.get(modelBlobId(characterId, slot, outfitId, legacyKind, assetId)))
+  if (perAsset) return perAsset
+  return idbReq(store.get(legacyModelBlobId(characterId, slot, outfitId, legacyKind)))
 }
 
 export async function getModelBlobsForCharacter(characterId) {
@@ -173,7 +178,14 @@ export async function deleteModelBlob(characterId, slot, outfitId, kind, assetId
 
 export async function deleteAssetModels(characterId, slot, outfitId, assetId) {
   if (!characterId || !assetId) return
-  await Promise.all(MODEL_FILE_KINDS.map((kind) => deleteModelBlob(characterId, slot, outfitId, kind, assetId)))
+  const rows = await getModelBlobsForCharacter(characterId)
+  const prefix = assetBlobPrefix(characterId, slot, outfitId, assetId)
+  const matches = rows.filter((row) => String(row.id || '').startsWith(prefix))
+  const db = await openDB()
+  const tx = db.transaction([STORES.MODELS], 'readwrite')
+  const store = tx.objectStore(STORES.MODELS)
+  await Promise.all(matches.map((row) => idbReq(store.delete(row.id))))
+  await Promise.all(MODEL_FILE_KINDS.map((kind) => idbReq(store.delete(legacyModelBlobId(characterId, slot, outfitId, kind)))))
 }
 
 export async function deleteSlotModels(characterId, slot, outfitId) {

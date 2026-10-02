@@ -1,5 +1,7 @@
 /** Official v3 list prices ($1 = 100 credits). No cheaper retry SKU exists. */
 
+import { CONVERT_PAID_FLAGS, TRIPO_MODELS } from './tripoEndpoints'
+
 export const TRIPO_ENGINES = {
   h3: {
     id: 'h3',
@@ -35,14 +37,21 @@ export const RIG_CREDITS = 25
 export const RETARGET_CREDITS = 10
 export const CONVERT_BASE_CREDITS = 5
 export const CONVERT_EXTRA_FLAG_CREDITS = 5
+/** Not published in the sources we verified — shown as "~" and reconciled from credits_consumed. */
+export const TEXTURE_CREDITS = 10
+export const DECIMATE_CREDITS = 5
+export const SEGMENT_CREDITS = 5
+export const COMPLETE_CREDITS = 5
 
-export const LOCOMOTION_CLIPS = [
-  { id: 'idle', preset: 'preset:idle', kind: 'animIdle', label: 'Idle' },
-  { id: 'walk', preset: 'preset:walk', kind: 'animWalk', label: 'Walk' },
-  { id: 'run', preset: 'preset:run', kind: 'animRun', label: 'Run' },
-]
+function engineIdFor(engineOrModel) {
+  if (TRIPO_ENGINES[engineOrModel]) return engineOrModel
+  const info = TRIPO_MODELS[engineOrModel]
+  if (!info) return 'h3'
+  return info.lowPoly ? 'p1' : 'h3'
+}
 
-export function estimateMeshCredits(engineId, texture, opts = {}) {
+export function estimateMeshCredits(engineOrModel, texture, opts = {}) {
+  const engineId = engineIdFor(engineOrModel)
   const engine = TRIPO_ENGINES[engineId] || TRIPO_ENGINES.h3
   let total = texture ? engine.withTexture : engine.noTexture
   if (engineId === 'p1') return total
@@ -66,6 +75,39 @@ export function estimateStlCredits() {
 /** FBX convert with pivot_to_center_bottom. */
 export function estimateFbxCredits() {
   return CONVERT_BASE_CREDITS + CONVERT_EXTRA_FLAG_CREDITS
+}
+
+/** Convert = base + 5 per paid flag (flatten_bottom, pivot_to_center_bottom, quad, pack_uv, force_symmetry, bake). */
+export function estimateConvertCredits(payloadOrFlags = {}) {
+  const flags = CONVERT_PAID_FLAGS.filter((f) => payloadOrFlags[f] === true).length
+  return CONVERT_BASE_CREDITS + CONVERT_EXTRA_FLAG_CREDITS * flags
+}
+
+/**
+ * One estimator for every billed job kind.
+ * @returns {{ credits: number, approx: boolean }}
+ */
+export function estimateJobCredits(kind, values = {}) {
+  switch (kind) {
+    case 'mesh':
+      return { credits: estimateMeshCredits(values.model || values.engine || 'h3', values.texture !== false, values), approx: !!(values.model && TRIPO_MODELS[values.model]?.family === 'p2') }
+    case 'rig':
+      return { credits: RIG_CREDITS, approx: false }
+    case 'retarget':
+      return { credits: estimateRetargetCredits((values.presets || []).length || 1), approx: false }
+    case 'convert':
+      return { credits: estimateConvertCredits(values.payload || values), approx: false }
+    case 'texture':
+      return { credits: TEXTURE_CREDITS, approx: true }
+    case 'decimate':
+      return { credits: DECIMATE_CREDITS, approx: true }
+    case 'segment':
+      return { credits: SEGMENT_CREDITS, approx: true }
+    case 'complete':
+      return { credits: COMPLETE_CREDITS, approx: true }
+    default:
+      return { credits: 0, approx: true }
+  }
 }
 
 export function formatCredits(n) {

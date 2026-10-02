@@ -40,8 +40,8 @@ import {
   garmentOptionsForType,
 } from '../../utils/wardrobe'
 import SeedControl from '../shared/SeedControl'
-import Model3DSlot from '../ImageGeneration/Model3DSlot'
-import { useTripoConfirm } from '../../hooks/useTripoConfirm'
+import Model3DCard from '../ImageGeneration/Model3DCard'
+import { useTripoJobs } from '../../hooks/useTripoJobs'
 
 function SlotSelect({ value, options, onChange, placeholder = 'Select...' }) {
   return (
@@ -69,13 +69,7 @@ export default function WardrobePanel() {
   const removeOutfit = useCharacterStore((s) => s.removeOutfit)
   const generatedModels = useCharacterStore((s) => s.generatedModels)
   const addToast = useToastStore((s) => s.addToast)
-  const {
-    tripoBusy,
-    openMeshConfirm,
-    openPaidConfirm,
-    openViewer,
-    overlays,
-  } = useTripoConfirm()
+  const { openJob, overlays } = useTripoJobs()
 
   const [showForm, setShowForm] = useState(false)
   const [generatingId, setGeneratingId] = useState(null)
@@ -379,22 +373,16 @@ export default function WardrobePanel() {
                 }}
                 onFullscreen={() => outfit.image && setFullscreenImage(outfit.image)}
                 threeD={(
-                  <Model3DSlot
+                  <Model3DCard
                     compact
                     title={outfit.name}
                     description="3D from this look's 2D image. Never auto-runs when you add a look."
                     slot="outfit"
                     outfitId={outfit.id}
                     generatedModels={generatedModels}
-                    canGenerate={!!outfit.image && !tripoBusy}
+                    canGenerate={!!outfit.image}
                     generateHint={outfit.image ? '' : 'Generate the 2D look first.'}
-                    tripoBusy={tripoBusy}
-                    onGenerate={() => openMeshConfirm('outfit', outfit.id, false)}
-                    onRetry={() => openMeshConfirm('outfit', outfit.id, true)}
-                    onView={() => openViewer('outfit', outfit.id, 'mesh')}
-                    onRig={() => openPaidConfirm('rig', 'outfit', outfit.id)}
-                    onStl={() => openPaidConfirm('stl', 'outfit', outfit.id)}
-                    onFbx={() => openPaidConfirm('fbx', 'outfit', outfit.id)}
+                    onGenerate={(profile) => openJob('mesh', { slot: 'outfit', outfitId: outfit.id }, { profile })}
                   />
                 )}
               />

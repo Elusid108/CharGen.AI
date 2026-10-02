@@ -1,0 +1,7 @@
+name = "chargen-tripo-proxy"
+main = "tripo-worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+# Comma-separated browser origins allowed to call this Worker. "*" allows any origin.
+ALLOWED_ORIGINS = "https://elusid108.github.io,http://localhost:5173,http://localhost:4173"

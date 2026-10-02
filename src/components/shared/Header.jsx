@@ -11,6 +11,7 @@ const SPECIAL_TITLES = {
   library: 'Character Library',
   chat: 'Chat',
   motion: 'Motion Studio',
+  studio3d: '3D Studio',
 }
 
 export default function Header({ currentTab, onToggleSidebar, sidebarOpen }) {

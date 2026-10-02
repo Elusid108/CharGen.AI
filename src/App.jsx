@@ -9,18 +9,22 @@ import WardrobePanel from './components/WardrobeSystem/WardrobePanel'
 import LibraryPanel from './components/Library/LibraryPanel'
 import ChatPanel from './components/Chat/ChatPanel'
 import MotionPanel from './components/Motion/MotionPanel'
+import Studio3DPanel from './components/Studio3D/Studio3DPanel'
 import HistoryPanel from './components/CharacterSheet/HistoryPanel'
 import { FORM_TAB_IDS } from './data/sheetTabs'
 import SettingsPanel from './components/shared/SettingsPanel'
 import ToastContainer from './components/shared/ToastContainer'
 import { useCharacterStore } from './hooks/useCharacter'
+import { useUiStore, isFullBleedTab } from './hooks/useUi'
 import { resumeInFlightTripoJobs, refreshTripoBalanceSilent } from './utils/tripoJobs'
 
 const FORM_TABS = FORM_TAB_IDS
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState('identity')
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const currentTab = useUiStore((s) => s.currentTab)
+  const setCurrentTab = useUiStore((s) => s.setTab)
+  const sidebarOpen = useUiStore((s) => s.sidebarOpen)
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar)
   const [contextInfo, setContextInfo] = useState({ title: 'Select an attribute', description: 'Hover over or change any field to see definitions, implications, and tips.' })
   const apiKey = useCharacterStore(s => s.apiKey)
   const tripoApiKey = useCharacterStore(s => s.tripoApiKey)
@@ -56,7 +60,7 @@ export default function App() {
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onToggleSidebar={toggleSidebar}
         onOpenSettings={() => setShowSettings(true)}
       />
 
@@ -64,14 +68,15 @@ export default function App() {
       <main className="flex-1 flex flex-col h-full relative min-w-0">
         <Header
           currentTab={currentTab}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          onToggleSidebar={toggleSidebar}
           sidebarOpen={sidebarOpen}
         />
 
         <div className="flex-1 overflow-hidden flex">
-          {currentTab === 'chat' ? (
+          {isFullBleedTab(currentTab) ? (
             <div className="flex-1 overflow-hidden min-w-0">
-              <ChatPanel />
+              {currentTab === 'chat' && <ChatPanel />}
+              {currentTab === 'studio3d' && <Studio3DPanel />}
             </div>
           ) : (
             <>

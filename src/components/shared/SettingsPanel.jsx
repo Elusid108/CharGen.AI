@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { X, Key, HardDrive, ExternalLink, RefreshCw, Box } from 'lucide-react'
+import { X, Key, HardDrive, ExternalLink, RefreshCw, Box, Globe } from 'lucide-react'
 import { useCharacterStore } from '../../hooks/useCharacter'
 import { useToastStore } from '../../hooks/useToast'
 import { getStorageEstimate } from '../../utils/db'
@@ -8,12 +8,15 @@ import { modelIdFromApiName } from '../../utils/models'
 import { APP_VERSION } from '../../appVersion'
 import { refreshTripoBalanceSilent } from '../../utils/tripoJobs'
 import { formatCredits } from '../../utils/tripoCredits'
+import { getTripoBalance, normalizeProxyUrl, resolveTripoTransportStatus } from '../../utils/tripo'
 
 export default function SettingsPanel({ onClose }) {
   const apiKey = useCharacterStore(s => s.apiKey)
   const setApiKey = useCharacterStore(s => s.setApiKey)
   const tripoApiKey = useCharacterStore(s => s.tripoApiKey)
   const setTripoApiKey = useCharacterStore(s => s.setTripoApiKey)
+  const tripoProxyUrl = useCharacterStore(s => s.tripoProxyUrl)
+  const setTripoProxyUrl = useCharacterStore(s => s.setTripoProxyUrl)
   const tripoBalance = useCharacterStore(s => s.tripoBalance)
   const availableTextModels = useCharacterStore(s => s.availableTextModels)
   const availableImageModels = useCharacterStore(s => s.availableImageModels)
@@ -26,6 +29,8 @@ export default function SettingsPanel({ onClose }) {
 
   const [keyInput, setKeyInput] = useState(apiKey || '')
   const [tripoKeyInput, setTripoKeyInput] = useState(tripoApiKey || '')
+  const [proxyInput, setProxyInput] = useState(tripoProxyUrl || '')
+  const [isTestingProxy, setIsTestingProxy] = useState(false)
   const [storage, setStorage] = useState(null)
   const [isRefreshingModels, setIsRefreshingModels] = useState(false)
   const [isRefreshingTripo, setIsRefreshingTripo] = useState(false)
@@ -41,6 +46,45 @@ export default function SettingsPanel({ onClose }) {
   React.useEffect(() => {
     setTripoKeyInput(tripoApiKey || '')
   }, [tripoApiKey])
+
+  React.useEffect(() => {
+    setProxyInput(tripoProxyUrl || '')
+  }, [tripoProxyUrl])
+
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : ''
+  const transportStatus = resolveTripoTransportStatus({ proxyUrl: tripoProxyUrl, hostname })
+  const transportCopy = transportStatus === 'custom-proxy'
+    ? 'Using your proxy — 3D works on this host.'
+    : transportStatus === 'local-proxy'
+      ? 'Local Vite proxy — 3D works while running locally.'
+      : 'No proxy on this host — Tripo calls will be blocked by browser CORS. Add a proxy URL below.'
+
+  const handleSaveProxy = async () => {
+    const next = normalizeProxyUrl(proxyInput)
+    if (proxyInput.trim() && !next) {
+      addToast('Proxy URL must start with https:// (or http://localhost)', 'warning')
+      return
+    }
+    await setTripoProxyUrl(next)
+    addToast(next ? 'Tripo proxy saved' : 'Tripo proxy cleared', 'success')
+  }
+
+  const handleTestProxy = async () => {
+    const key = tripoKeyInput.trim() || tripoApiKey
+    if (!key) {
+      addToast('Save a Tripo key first, then test the proxy', 'warning')
+      return
+    }
+    setIsTestingProxy(true)
+    try {
+      const bal = await getTripoBalance(key)
+      addToast(`Proxy OK — ${formatCredits(bal.balance)} credits reachable`, 'success')
+    } catch (e) {
+      addToast(e?.message || 'Proxy test failed', 'error', 7000)
+    } finally {
+      setIsTestingProxy(false)
+    }
+  }
 
   React.useEffect(() => {
     if (tripoApiKey) void refreshTripoBalanceSilent()
@@ -113,6 +157,16 @@ export default function SettingsPanel({ onClose }) {
             <button onClick={handleSaveKey} className="btn-primary text-sm px-4">
               Save
             </button>
+            {apiKey && (
+              <button
+                type="button"
+                onClick={() => { void setApiKey(''); setKeyInput(''); addToast('Google key removed from this browser', 'info') }}
+                className="btn-secondary text-sm px-3"
+                title="Remove the key from this browser"
+              >
+                Clear
+              </button>
+            )}
           </div>
 
           <a
@@ -217,6 +271,16 @@ export default function SettingsPanel({ onClose }) {
             >
               Save
             </button>
+            {tripoApiKey && (
+              <button
+                type="button"
+                onClick={() => { void setTripoApiKey(''); setTripoKeyInput(''); addToast('Tripo key removed from this browser', 'info') }}
+                className="btn-secondary text-sm px-3"
+                title="Remove the key from this browser"
+              >
+                Clear
+              </button>
+            )}
           </div>
           <a
             href="https://platform.tripo3d.ai"
@@ -251,6 +315,38 @@ export default function SettingsPanel({ onClose }) {
               </button>
             </div>
           )}
+        </div>
+
+        {/* Tripo proxy */}
+        <div className="space-y-3 mb-8">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-400 uppercase tracking-wide">
+            <Globe size={14} />
+            Tripo proxy URL (optional)
+          </div>
+          <p className={`text-xs ${transportStatus === 'direct-blocked' ? 'text-amber-400' : 'text-slate-500'}`}>{transportCopy}</p>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={proxyInput}
+              onChange={(e) => setProxyInput(e.target.value)}
+              placeholder="https://chargen-tripo-proxy.<account>.workers.dev"
+              className="input-field flex-1"
+            />
+            <button type="button" onClick={() => void handleSaveProxy()} className="btn-primary text-sm px-4">
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleTestProxy()}
+              disabled={isTestingProxy}
+              className="btn-secondary text-sm px-3 disabled:opacity-50"
+            >
+              {isTestingProxy ? 'Testing…' : 'Test'}
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">
+            Tripo has no browser CORS. Deploy the Cloudflare Worker in <code className="text-slate-400">proxy/</code> (one <code className="text-slate-400">wrangler deploy</code>) and paste its URL here for the hosted build. Your key is sent per request and never stored on the Worker.
+          </p>
         </div>
 
         {/* Storage Info */}

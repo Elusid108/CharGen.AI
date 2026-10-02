@@ -1,6 +1,6 @@
 # CharGen.AI - Universal Character Engine
 
-**v1.11.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. Optional **Tripo 3D** turns the T-pose lock, mannequin, or a wardrobe look into a mesh when you press Generate 3D. **Motion Studio** compiles the same sheet into a timed, hardware-agnostic expression and gesture script for an animatronic rig.
+**v1.12.0** — a client-side character workshop for humans, aliens, monsters, and everything in between. Fill a detailed sheet, generate a consistent identity lock and derived views, write a backstory that is not a résumé, then text the character. The **3D Studio** turns the T-pose lock, mannequin, a wardrobe look, or a text prompt into a Tripo mesh, rigs and animates it, previews everything in a three.js viewport, and exports engine-ready bundles. **Motion Studio** compiles the same sheet into a timed, hardware-agnostic expression and gesture script for an animatronic rig.
 
 ## Features
 
@@ -27,24 +27,28 @@ Identity is a **front T-pose lock** (3:4, underwear). Side, back, profile, and m
 - **Generate All** order: front T-pose lock → side → back → profile → mannequin
 - **Slots**: front lock, side, back, profile (1:1), mannequin (relaxed dress-up pose)
 - **Canonical + Thirst profiles**: generating Profile creates both looks at once. Switch them on the Profile card. Canonical uses Default Outfit; Thirst uses Intimate Attire. Body locks stay underwear shots
-- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 11). Randomize All derives the image seed from the character seed. Seed is `0`–`2147483647` with a slider, number field, and randomize
+- **Art style, lighting, mood, exclude, and seed** save with the character (schemaVersion 12). Randomize All derives the image seed from the character seed. Seed is `0`–`2147483647` with a slider, number field, and randomize
 - **Wardrobe outfits** use the **mannequin** pose when one exists (T-pose lock only as fallback)
 - Native Gemini image models can take a reference; Imagen `predict` remains text-only (platform limit)
 
 Old library saves: a former 16:9 T-pose sheet is still treated as a leftover turnaround (not shown). Generate a new front lock, then side and back. A single stored profile is copied into both Canonical and Thirst slots.
 
-### 3D Studio (Images → Mesh)
-Tripo jobs **never** run from Generate All Images or from adding a wardrobe look. Each mesh starts only after you confirm a Generate 3D button.
+### 3D Studio (Images or Text → Mesh → Rig → Clips → Export)
+A top-level tab with an asset list, a **three.js viewport**, and an action rail. Tripo jobs **never** run from Generate All Images or from adding a wardrobe look — every billed call starts from an options dialog that shows the credit estimate against your live balance.
 
-- **Generation Studio**: turnaround lock (front T-pose plus side/back) and mannequin
-- **Wardrobe**: a separate 3D button on each look that already has a 2D image
-- **Confirm dialog** with engine (H3 or P1), texture on/off, H3 texture/geometry quality, P1 face limit, and a live credit estimate
-- After each job a **viewer popup** opens with mouse orbit and touch rotate/pinch. Meshes stay in IndexedDB until you press Download
-- **History** per slot: the latest mesh is current; regenerating archives the previous one so you can restore or delete it
-- **Optional** Mixamo rig, idle/walk/run retarget (10 credits per clip), STL preview in the viewer, and FBX — billed only if you confirm
-- Failed jobs return frozen credits. Regenerating a mesh you dislike costs full price
+- **Sources**: turnaround lock (front T-pose plus side/back → multiview), mannequin (image), any wardrobe look (image), or a **Concept** prompt (text-to-model). Entry cards live in the Generation Studio and the Wardrobe; the `+` beside each source in the Studio does the same
+- **Mesh profiles**: **Animation / game** (textured PBR, detailed texture, align-to-image, rig-ready) or **3D print** (untextured, detailed geometry). Every option (model version H3.1 / H3.0 / H2.5 / P1 low-poly / P2 quad, texture + geometry quality, face limit, quad, orientation, seed) stays editable in the dialog
+- **Viewport**: orbit / pan / zoom, move / rotate / scale gizmo with snap (G / R / S, Esc, F to frame), wireframe, skeleton overlay, grid, exposure, PNG snapshot. The transform is saved per asset version. Stats show triangles, vertices, W×H×D, bones, file size, model, profile, and credits spent
+- **Animation bar**: clip picker, play / pause / stop, scrub, speed 0.25–2×, loop
+- **Rig**: free rig-check first, then biped / quadruped / hexapod / octopod / avian / serpentine / aquatic rigs with the **Mixamo** or Tripo skeleton spec, GLB or FBX output. Not riggable = nothing charged
+- **Animate**: Tripo's preset clips (idle, walk, run, turn, jump, climb, dive, slash, shoot, hurt, fall, plus quadruped / hexapod / octopod / serpentine / aquatic gaits), up to five per job, each a playable GLB
+- **Mesh ops**: re-texture (also "make animation version" of a print mesh), decimate to LODs, segment into parts, complete occluded parts
+- **Convert**: FBX (Mixamo preset), glTF, USDZ, OBJ, STL, 3MF with texture size / format, animation, pack UV, symmetry, bake. **Make print version** writes STL + 3MF with a flat base, pivot at centre-bottom, scaled to a height in mm measured from the viewport
+- **Export bundle**: one ZIP per asset version laid out by convention — `source/`, `model/glb`, `model/gltf`, `model/fbx` (+ textures, extracted from the GLB when Tripo's FBX ships without them), `model/usdz`, `animations/name@clip.glb`, `lod/`, `print/name_120mm.stl|3mf`, `manifest.json` (ids, Tripo task ids, options, rig, clips, credits, missing files) and a `README.txt` with Unity / Unreal / Godot / VRM / print notes. Targets: Unity / Unreal, glTF / GLB, USDZ, 3D print; the dialog lists what each target still needs and its cost
+- **Jobs**: per-asset, up to three in parallel, cancellable, resumed after a reload through Tripo's task list. Results are downloaded into IndexedDB the moment a task finishes (Tripo links expire within minutes). Spent credits are read back from the task
+- **History** per source: the latest mesh is current; regenerating archives the previous version so you can restore or delete it
 
-Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and file CDN (`/tripo-artifact`) because Tripo does not allow browser CORS. The GitHub Pages build has no proxy, so 3D will not reach Tripo from the hosted site.
+Tripo has no browser CORS, so the app needs a relay. `npm run dev` / `npm run preview` provide one (`/tripo-api`, `/tripo-artifact`). For the GitHub Pages build deploy the Cloudflare Worker in [`proxy/`](proxy/README.md) and paste its URL into **Settings → Tripo proxy URL** (Test proxy checks it with a balance call). The Worker forwards your `Authorization` header per request and stores nothing.
 
 ### Motion Studio (Stats → Motion)
 - **Personality → motion style**: OCEAN, archetype, social battery, speech style, gait, aura, tic, humor, dynamic, attachment, coping and more compile into numeric knobs (pacing, amplitude, gesture frequency, jitter, expressiveness, stillness) plus per-expression / per-gesture preferences (`src/data/options/motionBehavior.js`)
@@ -94,7 +98,7 @@ Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and f
 ### Character Library
 - **IndexedDB** — everything stays in the browser
 - **Stable character id** so Save updates the same library row
-- **schemaVersion 11** saves: dual profile slots, image prefs, line-item wardrobe, chat album, presence, timestamps, **3D current + archive history** (`generatedModels`), **motion** (chosen rig id + saved motion scripts), the **life ledger**, and the **character seed** recipe (`characterSeed`, `rollCount`, `seedLocked`). Older saves load with an empty ledger and no seed
+- **schemaVersion 12** saves: dual profile slots, image prefs, line-item wardrobe, chat album, presence, timestamps, **3D assets** (`generatedModels`: lock / mannequin / concept / per-outfit, current + archive, each with a keyed file map, rig, clips, LODs, jobs, transform, print spec, stats, lineage), **motion** (chosen rig id + saved motion scripts), the **life ledger**, and the **character seed** recipe. Schema 11 and older 3D records migrate in place (legacy blob rows are still found), older saves load with an empty ledger and no seed
 - **Models** object store holds GLB / preview / animation / STL / FBX blobs in the browser; Download is optional
 - **rigProfiles** object store holds your custom rig JSON (`RIG_PROFILE_SCHEMA_VERSION` 1), separate from character saves
 - **JPEG compression** on generated, wardrobe, analysis, and chat images
@@ -108,8 +112,9 @@ Local `npm run dev` / `npm run preview` proxy Tripo’s API (`/tripo-api`) and f
 - A **Google AI API key** (free tier available) from [Google AI Studio](https://aistudio.google.com/apikey)
   - Used for Gemini text, vision, native image, and Imagen. Rolling characters and life ledgers works offline without it
   - Settings lets you refresh the model list for your account
-- Optional **Tripo API key** from [Tripo](https://platform.tripo3d.ai) for 3D Studio
-  - Separate from Google. Stored locally. Used only when you confirm a Generate 3D (or rig/export) button
+- Optional **Tripo API key** from [Tripo](https://platform.tripo3d.ai) for the 3D Studio
+  - Separate from Google. Stored locally. Used only when you confirm a job dialog (generate, rig, animate, convert, …)
+  - Hosted (GitHub Pages) use needs the optional Cloudflare Worker proxy in `proxy/` — see the 3D Studio section
 
 ### Run locally (Windows)
 
@@ -134,7 +139,7 @@ On first launch, enter your Google AI API key. It is stored in IndexedDB and onl
 npm run build
 ```
 
-Output goes to `dist/`. `npm run preview` still uses the local Tripo proxy; a static GitHub Pages host does not.
+Output goes to `dist/`. `npm run preview` still uses the local Tripo proxy; a static host needs the Worker in `proxy/`.
 
 ## Deployment (GitHub Pages)
 
@@ -146,7 +151,7 @@ A GitHub Actions workflow deploys to GitHub Pages on every push to `main`.
 
 Live URL: `https://Elusid108.github.io/CharGen.AI/`
 
-Image, chat, and library features work on the hosted site. **Tripo 3D needs the local Vite proxy** (`npm run dev` or `npm run preview`).
+Image, chat, library and the 3D viewport work on the hosted site. **Tripo jobs need a relay**: run locally (`npm run dev` / `npm run preview`) or deploy the Cloudflare Worker in `proxy/` and set its URL in Settings. The deploy workflow runs `npm test` before building.
 
 ## Tech Stack
 
@@ -156,10 +161,10 @@ Image, chat, and library features work on the hosted site. **Tripo 3D needs the 
 - **IndexedDB** (local characters, images, chat, 3D blobs, rig profiles, Google + Tripo keys)
 - **Google Gemini** for text, image analysis, chat, and native image (`generateContent`)
 - **Google Imagen** when selected (`predict`, no reference image)
-- **Tripo OpenAPI v3** for deliberate 3D generation (local Vite `/tripo-api` and `/tripo-artifact` proxies)
-- **Three.js** for in-app STL orbit preview
-- **model-viewer** for GLB orbit / touch / animation playback
-- **Vitest** (`npm test`) for the pure logic: seeded RNG and roll pipeline, OCEAN derivation, life-event templates and ledger invariants, story bible / chat prompt blocks, and the motion layer (vocabulary, rig validation, style compiler, script generator / clamp, Gemini path with `fetch` stubbed)
+- **Tripo OpenAPI v3** (path-style: generation, texture, convert, mesh ops, rig-check / rig / retarget, task list, balance) through the local Vite proxy or the optional **Cloudflare Worker** in `proxy/`
+- **Three.js** (dynamic import, own chunk) for the Studio viewport: GLTF / FBX / USDZ / STL / 3MF loaders, OrbitControls, TransformControls, SkeletonHelper, AnimationMixer, RoomEnvironment
+- **Vitest** (`npm test`) for the pure logic: seeded RNG and roll pipeline, OCEAN derivation, life-event templates and ledger invariants, story bible / chat prompt blocks, the motion layer, and the whole Tripo layer (endpoint builders, credits, asset records + legacy migration, transport with retry / abort, job schemas, export planner with a real ZIP, proxy allow-list, secret scan)
+- **Playwright smoke** (`npm run test:e2e`, optional, needs a global `playwright`): runs the built app with every Tripo route mocked — concept mesh, rig, three clips, export ZIP, reload
 - **JSZip** for bulk downloads
 - **Lucide React** for icons
 
@@ -167,7 +172,7 @@ Image, chat, and library features work on the hosted site. **Tripo 3D needs the 
 
 - **100% client-side** — no CharGen backend, no tracking
 - API keys and library live in your browser
-- Google key is sent only to Google. Tripo key is sent only to Tripo, and only when you confirm a 3D action
+- Google key is sent only to Google. Tripo key is sent only to Tripo (directly through the local dev proxy, or through a Worker you deploy yourself), and only when you confirm a 3D job dialog
 - No telemetry
 
 ## License

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { isAllowedArtifactHost } from './proxy/artifactAllowlist.js'
 
 const tripoProxy = {
   '/tripo-api': {
@@ -7,17 +8,6 @@ const tripoProxy = {
     changeOrigin: true,
     rewrite: (path) => path.replace(/^\/tripo-api/, '/v3'),
   },
-}
-
-function isAllowedArtifactHost(hostname) {
-  const host = String(hostname || '').toLowerCase()
-  return (
-    host === 'tripo3d.ai'
-    || host === 'tripo3d.com'
-    || host === 'cdn.tripo3d.ai'
-    || host.endsWith('.tripo3d.ai')
-    || host.endsWith('.tripo3d.com')
-  )
 }
 
 function attachArtifactProxy(middlewares) {
@@ -79,6 +69,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
+          three: ['three'],
         },
       },
     },

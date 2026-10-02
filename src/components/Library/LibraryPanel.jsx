@@ -11,6 +11,8 @@ import { downloadImage, base64ToDataUrl, generateId, inferImageMime, extensionFo
 import { migrateSavedCharacter } from '../../hooks/useCharacter'
 import { resolveLibraryThumbnail } from '../../utils/imageGeneration'
 import JSZip from 'jszip'
+import { libraryBlobPath } from '../../utils/assetExport'
+import { safeFileStem } from '../../utils/tripoModels'
 
 export default function LibraryPanel() {
   const loadCharacter = useCharacterStore(s => s.loadCharacter)
@@ -128,37 +130,47 @@ export default function LibraryPanel() {
     if (selectedIds.size === 0) return
     try {
       const zip = new JSZip()
-      const folder = zip.folder('CharGen_Characters')
+      const root = 'CharGen_Characters'
+      const used = new Set()
 
       for (const char of characters.filter((c) => selectedIds.has(c.id))) {
         const migrated = migrateSavedCharacter(char)
-        const filename = (migrated.name || 'unnamed').replace(/\s+/g, '_')
-        folder.file(`${filename}.json`, JSON.stringify(migrated, null, 2))
+        const name = migrated.name || 'unnamed'
+        let folderName = `${safeFileStem(name)}_${String(migrated.id || '').slice(0, 6)}`
+        while (used.has(folderName)) folderName = `${folderName}_`
+        used.add(folderName)
+        const folder = `${root}/${folderName}`
+        zip.file(`${folder}/character.json`, JSON.stringify(migrated, null, 2))
 
         if (migrated.generatedImages) {
           Object.entries(migrated.generatedImages).forEach(([type, base64]) => {
             if (base64) {
               const mime = inferImageMime(base64)
               const ext = extensionForImageMime(mime)
-              const raw = stripBase64Prefix(base64)
-              folder.file(`${filename}_${type}.${ext}`, raw, { base64: true })
+              zip.file(`${folder}/images/${type}.${ext}`, stripBase64Prefix(base64), { base64: true })
             }
           })
+        }
+        for (const outfit of migrated.wardrobe || []) {
+          if (!outfit?.image) continue
+          const ext = extensionForImageMime(inferImageMime(outfit.image))
+          zip.file(`${folder}/images/outfits/${safeFileStem(outfit.name || outfit.id)}.${ext}`, stripBase64Prefix(outfit.image), { base64: true })
         }
 
         const models = await getModelBlobsForCharacter(migrated.id)
         for (const row of models) {
           if (!row?.blob) continue
-          const fname = row.filename || `${filename}_${row.kind}`
-          folder.file(`${filename}_${fname}`, row.blob)
+          zip.file(libraryBlobPath(folder, name, row), row.blob)
         }
       }
 
       const blob = await zip.generateAsync({ type: 'blob' })
+      const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
+      link.href = url
       link.download = 'chargen_export.zip'
       link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 10000)
 
       addToast('Download started!', 'success')
     } catch (e) {
